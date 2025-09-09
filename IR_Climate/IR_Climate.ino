@@ -1,32 +1,31 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+
 #include <IRremoteESP8266.h>
 #include <IRsend.h>
 #include <ir_Daikin.h>
+
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Wire.h>
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// Network credentials
+// Message for notifications
+String notificationMessage = "";
+
+#pragma region NETWORK_SETTINGS
 const char* ssid = "WIFI_SSID";
 const char* password = "WIFI_PASS";
-
-// Web server on port 80
+WiFiEventHandler onGotIPHandler;
+WiFiEventHandler onDisconnectedHandler;
 ESP8266WebServer server(80);
-
-#define OLED_SCL D1 // (GPIO5)
-#define OLED_SDA D2 // (GPIO4)
-#define OLED_RESET -1 // Reset pin not used on 0.91" OLED
-
-const uint16_t PIN_IRLED = D5;  // (GPIO14)
-#define PIN_TEMPERATURE D6      // (GPIO12)
-#define PIN_BUZZER D7           // (GPIO13)
+#pragma endregion NETWORK_SETTINGS
 
 #pragma region BUZZER_AUDIO
-
+#define PIN_BUZZER D7           // (GPIO13)
 #define BEEP_FREQ 1600        // Hz
 #define GAP_SHORT 250         // ms between beeps in a group
 #define GAP_GROUP 600         // ms between groups
@@ -177,43 +176,17 @@ inline void enqueueSOS()
   static const BeepPattern P = { PAT_SOS_STEPS, PAT_SOS_COUNT };
   BeepEngine_start(P);
 }
-
 #pragma endregion BUZZER_AUDIO
 
-// OLED Display
+#pragma region OLED
+#define OLED_SCL D1 // (GPIO5)
+#define OLED_SDA D2 // (GPIO4)
+#define OLED_RESET -1 // Reset pin not used on 0.91" OLED
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// DS18B20/DS1820 Temperature sensor setup
-OneWire oneWire(PIN_TEMPERATURE);
-DallasTemperature sensors(&oneWire);
-float currentTemperature = -127.0;
-unsigned long lastTempUpdate = 0;
-const unsigned long TEMP_UPDATE_INTERVAL = 60000;  // Update every 60 seconds (1 minute)
-
-// AC settings
-bool acPower = false;
-uint8_t acTemp = 25;  // Default temperature in Celsius
-uint8_t acFanSpeed = kDaikinFanAuto;
-uint8_t acMode = kDaikinCool;
-
-// Timer settings
-unsigned long acTimerStart = 0;
-unsigned long acTimerDuration = 0;  // Duration in milliseconds (0 = no timer)
-
-// Initialize the IR sender
-IRDaikinESP ac((uint16_t)PIN_IRLED);
-
-// Message for notifications
-String notificationMessage = "";
-
-// WiFi event handlers
-WiFiEventHandler onGotIPHandler;
-WiFiEventHandler onDisconnectedHandler;
-
-// Function to display IP address on OLED
-void displayIPAddress() 
+void displayIPAddress()
 {
   display.clearDisplay();
   display.setTextSize(1);
@@ -226,6 +199,31 @@ void displayIPAddress()
   display.println(WiFi.localIP().toString());
   display.display();
 }
+#pragma endregion OLED
+
+#pragma region IR__LED
+const uint16_t PIN_IRLED = D5;  // (GPIO14)
+IRDaikinESP ac((uint16_t)PIN_IRLED);
+#pragma endregion IR_LED
+
+#pragma region TEMPERATURE_SENSOR
+// DS18B20/DS1820 Temperature sensor setup
+#define PIN_TEMPERATURE D6      // (GPIO12)
+OneWire oneWire(PIN_TEMPERATURE);
+DallasTemperature sensors(&oneWire);
+float currentTemperature = -127.0;
+unsigned long lastTempUpdate = 0;
+const unsigned long TEMP_UPDATE_INTERVAL = 60000;  // Update every 60 seconds (1 minute)
+#pragma endregion TEMPERATURE_SENSOR
+
+#pragma region AC_SETTINGS
+bool acPower = false;
+uint8_t acTemp = 23;  // Default temperature in Celsius
+uint8_t acFanSpeed = 3;
+uint8_t acMode = kDaikinCool;
+unsigned long acTimerStart = 0;
+unsigned long acTimerDuration = 0;  // Duration in milliseconds (0 = no timer)
+#pragma endregion AC_SETTINGS
 
 // Update temperature from the DS1820/DS18B20 sensor
 void updateTemperature()
@@ -256,23 +254,6 @@ void handleRefreshTemp()
   updateTemperature();
   server.sendHeader("Location", "/");
   server.send(303);
-}
-
-// Handle raw temperature data (for debugging)
-void handleRawTemp()
-{
-  sensors.requestTemperatures();
-  float tempC = sensors.getTempCByIndex(0);
-  
-  String json = "{\"raw_temp\":";
-  json += String(tempC);
-  json += ",\"device_status\":";
-  json += (tempC == DEVICE_DISCONNECTED_C ? "\"disconnected\"" : "\"connected\"");
-  json += ",\"device_count\":";
-  json += String(sensors.getDeviceCount());
-  json += "}";
-  
-  server.send(200, "application/json", json);
 }
 
 // Set default AC settings
@@ -316,7 +297,7 @@ void handleRoot()
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
   html += "<style>";
   html += "body { font-family: Arial, sans-serif; margin: 20px; text-align: center; background-color: black; color: white; }";
-  html += "button { background-color: #4CAF50; border: none; color: white; padding: 15px 32px; margin: 10px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; border-radius: 8px; }";
+  html += "button { background-color: #4CAF50; border: none; color: white; padding: 15px 32px; margin: 10px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; border-radius: 8px; cursor: pointer; }";
   html += ".off { background-color: #f44336; }";
   html += ".temp { background-color: #008CBA; }";
   html += ".refresh { background-color: #FF9800; }";
@@ -342,7 +323,6 @@ void handleRoot()
   html += "        temp.innerText = 'Sensor Error';";
   html += "        temp.className = 'error';";
   html += "      }";
-  html += "      // NEW: live update AC status text from /status";
   html += "      const acStatus = document.getElementById('acStatus');";
   html += "      if (acStatus) acStatus.innerText = data.power ? 'ON' : 'OFF';";
   html += "      const timerStatus = document.getElementById('timerStatus');";
@@ -356,7 +336,6 @@ void handleRoot()
   html += "      } else {";
   html += "        timerStatus.style.display = 'none';";
   html += "      }";
-  html += "      // Optional safety: ensure timer hidden when power is OFF";
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
   html += "}";
@@ -411,6 +390,7 @@ void handleRoot()
   html += "<button onclick='location.href=\"/on\"'>Turn ON</button>";
   html += "<button class='off' onclick='location.href=\"/off\"'>Turn OFF</button><br>";
   
+  // Changed to use direct onchange events (no form/submit buttons)
   html += "<div class='temp-control'>";
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
@@ -496,6 +476,21 @@ void handleOff()
   sendAcCommand();
   server.sendHeader("Location", "/");
   server.send(303);
+}
+
+void handleToggle()
+{
+  if (acPower == true)
+  {
+    handleOff();
+    return;
+  }
+
+  else
+  {
+    handleOn();
+    return;
+  }
 }
 
 // Handle temperature changes
@@ -603,7 +598,8 @@ void handleStatus()
   
   if (acTimerDuration > 0 && acPower)
   {
-    unsigned long remainingTime = acTimerDuration - (millis() - acTimerStart);
+    unsigned long elapsed = millis() - acTimerStart;
+    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     json += ",\"timerActive\":true";
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL); // in seconds
   } 
@@ -652,7 +648,7 @@ void setup()
     display.display();
   }
   
-  // Initialize the temperature sensors - SIMPLIFIED approach
+  // Initialize the temperature sensors
   Serial.println("Initializing temperature sensor...");
   sensors.begin();
   
@@ -663,13 +659,13 @@ void setup()
   onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt) 
   {
     Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
-    g_flagWifiConnected = true;  // handled in loop()
+    g_flagWifiConnected = true;
   });
 
   onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt) 
   {
     Serial.printf("WiFi disconnected, reason=%d\n", evt.reason);
-    g_flagWifiDisconnected = true; // handled in loop()
+    g_flagWifiDisconnected = true;
   });
   
   // Connect to WiFi
@@ -681,14 +677,12 @@ void setup()
   {
     delay(500);
     Serial.print(".");
-    // Do NOT beep here; keep association/DHCP fast
   }
 
   Serial.println("");
   Serial.print("Connected to WiFi. IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Guarantee the "connected" beep even if event order differs
   g_flagWifiConnected = true;
   
   // Display IP address on OLED
@@ -698,41 +692,30 @@ void setup()
   server.on("/", handleRoot);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
+  server.on("/toggle", handleToggle);
   server.on("/temp", handleTemp);
-  server.on("/fan", handleFan);  // New endpoint for fan speed
-  server.on("/timer", handleTimer);  // New endpoint for timer
-  server.on("/clear_timer", handleClearTimer);  // New endpoint for clearing timer
+  server.on("/fan", handleFan);
+  server.on("/timer", handleTimer);
+  server.on("/clear_timer", handleClearTimer);
   server.on("/status", handleStatus);
-  server.on("/refresh_temp", handleRefreshTemp);
-  server.on("/raw_temp", handleRawTemp);  // Added raw temperature endpoint for debugging
-
-  // Optional endpoint to stop server to test "HTTP stopped" SOS
-  server.on("/server_stop", []()
-  {
-    server.send(200, "text/plain", "Server stopping...");
-    delay(50);
-    server.stop();
-    Serial.println("HTTP server stopped");
-    g_flagHttpStopped = true;  // handled in loop()
-  });
+  server.on("/refresh_temp", handleRefreshTemp);  // Get room temperature from DS1820 sensor.
   
   // Start the server
   server.begin();
   Serial.println("HTTP server started");
-  g_flagHttpStarted = true;   // handled in loop()
+  g_flagHttpStarted = true;
 }
 
 void loop()
 {
   server.handleClient();
 
-  // ---- Non-blocking beeper engine & queued events ----
+  // Beeper engine & queued events
   if (g_flagWifiConnected) { enqueueOne3(); g_flagWifiConnected = false; }
   if (g_flagWifiDisconnected) { enqueueSOS(); g_flagWifiDisconnected = false; }
   if (g_flagHttpStarted) { enqueueOne3(); g_flagHttpStarted = false; }
   if (g_flagHttpStopped) { enqueueSOS(); g_flagHttpStopped = false; }
   BeepEngine_update();
-  // ----------------------------------------------------
   
   // Update temperature reading every minute
   if (millis() - lastTempUpdate >= TEMP_UPDATE_INTERVAL)
