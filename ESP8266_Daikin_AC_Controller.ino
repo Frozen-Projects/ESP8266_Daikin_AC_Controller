@@ -347,7 +347,8 @@ void handleRoot()
   html += "}";
   html += "function setTimer() {";
   html += "  const timer = document.getElementById('timerSelect').value;";
-  html += "  location.href = '/timer?value=' + timer;";
+  html += "  if (timer == 0) {clearTimer()}";
+  html += "  else {location.href = '/timer?value=' + timer;}";
   html += "}";
   html += "function clearTimer() {";
   html += "  if (confirm('Are you sure you want to clear the timer?')) {";
@@ -408,7 +409,8 @@ void handleRoot()
   html += "<select id='fanSelect' onchange='changeFan()'>";
 
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
-  for (int f = 1; f <= 5; f++) {
+  for (int f = 1; f <= 5; f++)
+  {
     html += "<option value='" + String(f) + "'";
     if (f == acFanSpeed) html += " selected";
     html += ">" + String(f) + "</option>";
@@ -423,17 +425,18 @@ void handleRoot()
   html += "<select id='timerSelect' onchange='setTimer()'>";
 
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
-  for (int h = 1; h <= 9; h++) {
+  for (int h = 1; h <= 9; h++)
+  {
     html += "<option value='" + String(h) + "'";
     if (acTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
     html += ">" + String(h) + " Hour" + (h > 1 ? "s" : "") + "</option>";
   }
 
   html += "</select>";
-  html += "<button class='clear' onclick='clearTimer()'>Clear Timer</button>";
 
   html += "<p id='timerStatus' style='display: " + String(acTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
-  if (acTimerDuration > 0 && acPower) {
+  if (acTimerDuration > 0 && acPower)
+  {
     unsigned long elapsed = millis() - acTimerStart;
     unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     int remainingHours = remainingTime / 3600000UL;
