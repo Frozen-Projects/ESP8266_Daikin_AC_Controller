@@ -37,25 +37,25 @@ typedef struct
   uint8_t count;
 } BeepPattern;
 
-static const int16_t PAT_ONE3_STEPS[] =
+static const int16_t BEEP_SUCCESS_STEPS[] =
 {
   100,      // 100 ms tone
   -1
 };
 
-static const uint8_t PAT_ONE3_COUNT = 1;
+static const uint8_t BEEP_SUCCESS_COUNT = 1;
 
-static const int16_t PAT_SOS_STEPS[] =
+static const int16_t BEEP_SOS_STEPS[] =
 {
   // • • •
   100, -GAP_SHORT, 100, -GAP_SHORT, 100, -GAP_GROUP,
   // — — —
-  5000, -GAP_SHORT, 500, -GAP_SHORT, 500, -GAP_GROUP,
+  500, -GAP_SHORT, 500, -GAP_SHORT, 500, -GAP_GROUP,
   // • • •
   100, -GAP_SHORT, 100, -GAP_SHORT, 500
 };
 
-static const uint8_t PAT_SOS_COUNT = sizeof(PAT_SOS_STEPS) / sizeof(PAT_SOS_STEPS[0]);
+static const uint8_t BEEP_SOS_COUNT = sizeof(BEEP_SOS_STEPS) / sizeof(BEEP_SOS_STEPS[0]);
 
 // Engine state
 struct
@@ -98,11 +98,13 @@ inline void BeepEngine_stop()
 void BeepEngine_update()
 {
   if (g_inGap) {
-    if (millis() - g_gapStartMs >= INTER_BEEP_GAP_MS) {
+    if (millis() - g_gapStartMs >= INTER_BEEP_GAP_MS)
+    {
       g_inGap = false;
-      static const BeepPattern P = { PAT_ONE3_STEPS, PAT_ONE3_COUNT };
+      static const BeepPattern P = { BEEP_SUCCESS_STEPS, BEEP_SUCCESS_COUNT };
       BeepEngine_start(P);
     }
+
     return;
   }
 
@@ -112,7 +114,8 @@ void BeepEngine_update()
   int16_t dur = g_beep.steps[g_beep.index];
   unsigned long stepDur = (dur >= 0 ? (unsigned long)dur : (unsigned long)(-dur));
 
-  if (now - g_beep.stepStartMs == 0) {
+  if (now - g_beep.stepStartMs == 0)
+  {
     if (dur > 0) { tone(PIN_BUZZER, BEEP_FREQ); g_beep.toneOn = true; }
     else { noTone(PIN_BUZZER); g_beep.toneOn = false; }
   }
@@ -134,6 +137,7 @@ void BeepEngine_update()
         noTone(PIN_BUZZER);
       }
     }
+
     else
     {
       int16_t nd = g_beep.steps[g_beep.index];
@@ -143,16 +147,16 @@ void BeepEngine_update()
   }
 }
 
-inline void enqueueOne3()
+inline void enqueue_Beep_Success()
 {
-  static const BeepPattern P = { PAT_ONE3_STEPS, PAT_ONE3_COUNT };
+  static const BeepPattern P = { BEEP_SUCCESS_STEPS, BEEP_SUCCESS_COUNT };
   if (!g_beep.active && !g_inGap) { BeepEngine_start(P); }
   else { if (g_pendingShortBeeps < 5) g_pendingShortBeeps++; }
 }
 
-inline void enqueueSOS()
+inline void enqueue_Beep_SOS()
 {
-  static const BeepPattern P = { PAT_SOS_STEPS, PAT_SOS_COUNT };
+  static const BeepPattern P = { BEEP_SOS_STEPS, BEEP_SOS_COUNT };
   BeepEngine_start(P);
 }
 #pragma endregion BUZZER_AUDIO
@@ -227,6 +231,7 @@ void displayOLED()
 }
 #pragma endregion OLED
 
+// This function is called every minute. So, we use it to update OLED, too
 void updateTemperature()
 {
   Serial.println("Requesting temperature...");
@@ -240,6 +245,7 @@ void updateTemperature()
     Serial.print("Temperature: ");
     Serial.println(currentTemperature);
   }
+
   else
   {
     Serial.println("Error: Could not read temperature data");
@@ -370,6 +376,7 @@ void handleRoot()
   {
     html += String(currentTemperature, 1) + "&deg;C";
   }
+
   else
   {
     html += "<span class='error'>Sensor Error</span>";
@@ -386,7 +393,7 @@ void handleRoot()
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
 
-  for (int t = 18; t <= 28; t++)
+  for (int t = 18; t <= 32; t++)
   {
     html += "<option value='" + String(t) + "'";
     if (t == acTemp) html += " selected";
@@ -401,7 +408,7 @@ void handleRoot()
   html += "<select id='fanSelect' onchange='changeFan()'>";
 
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
-  for (int f = 2; f <= 5; f++) {
+  for (int f = 1; f <= 5; f++) {
     html += "<option value='" + String(f) + "'";
     if (f == acFanSpeed) html += " selected";
     html += ">" + String(f) + "</option>";
@@ -416,14 +423,13 @@ void handleRoot()
   html += "<select id='timerSelect' onchange='setTimer()'>";
 
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
-  for (int h = 1; h <= 4; h++) {
+  for (int h = 1; h <= 9; h++) {
     html += "<option value='" + String(h) + "'";
     if (acTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
     html += ">" + String(h) + " Hour" + (h > 1 ? "s" : "") + "</option>";
   }
 
   html += "</select>";
-
   html += "<button class='clear' onclick='clearTimer()'>Clear Timer</button>";
 
   html += "<p id='timerStatus' style='display: " + String(acTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
@@ -435,10 +441,9 @@ void handleRoot()
     int remainingSecs  = (remainingTime / 1000UL) % 60;
     html += "Timer: " + String(remainingHours) + "h " + String(remainingMins) + "m " + String(remainingSecs) + "s remaining";
   }
+
   html += "</p>";
-
   html += "</div>";
-
   html += "</body></html>";
 
   server.send(200, "text/html", html);
@@ -473,6 +478,7 @@ void handleToggle()
     handleOff();
     return;
   }
+
   else
   {
     handleOn();
@@ -485,9 +491,11 @@ void handleTemp()
   if (server.hasArg("value"))
   {
     int temp = server.arg("value").toInt();
-    if (temp >= 18 && temp <= 30) {
+    if (temp >= 18 && temp <= 32)
+    {
       acTemp = temp;
-      if (acPower) {
+      if (acPower)
+      {
         sendAcCommand();
       }
     }
@@ -502,7 +510,7 @@ void handleFan()
   if (server.hasArg("value"))
   {
     int fan = server.arg("value").toInt();
-    if ((fan >= 2 && fan <= 5) || fan == kDaikinFanAuto || fan == kDaikinFanQuiet)
+    if ((fan >= 1 && fan <= 5) || fan == kDaikinFanAuto || fan == kDaikinFanQuiet)
     {
       acFanSpeed = fan;
       if (acPower)
@@ -519,13 +527,15 @@ void handleTimer()
 {
   if (server.hasArg("value")) {
     int hours = server.arg("value").toInt();
-    if (hours >= 0 && hours <= 4)
+    if (hours >= 0 && hours <= 9)
     {
       unsigned long previousTimerDuration = acTimerDuration;
 
-      if (hours == 0){
+      if (hours == 0)
+      {
         acTimerDuration = 0;
       }
+
       else
       {
         acTimerDuration = (unsigned long)hours * 3600000UL;
@@ -554,21 +564,22 @@ void handleClearTimer()
 {
   bool hadActiveTimer = (acTimerDuration > 0);
 
-  acTimerDuration = 0;
+  if (!hadActiveTimer)
+  {
+    return;
+  }
 
+  acTimerDuration = 0;
+  notificationMessage = "Timer has been cleared";
+  
   if (acPower)
   {
     sendAcCommand();
   }
 
-  if (hadActiveTimer)
-  {
-    notificationMessage = "Timer has been cleared";
-  }
-
-  Serial.println("Timer cleared");
-
   displayOLED();
+  
+  Serial.println("Timer cleared");
 
   server.sendHeader("Location", "/");
   server.send(303);
@@ -590,6 +601,7 @@ void handleStatus()
     json += ",\"timerActive\":true";
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
   }
+
   else
   {
     json += ",\"timerActive\":false";
@@ -686,10 +698,10 @@ void loop()
 {
   server.handleClient();
 
-  if (g_flagWifiConnected)   { enqueueOne3(); g_flagWifiConnected = false; }
-  if (g_flagWifiDisconnected){ enqueueSOS();  g_flagWifiDisconnected = false; }
-  if (g_flagHttpStarted)     { enqueueOne3(); g_flagHttpStarted = false; }
-  if (g_flagHttpStopped)     { enqueueSOS();  g_flagHttpStopped = false; }
+  if (g_flagWifiConnected)   { enqueue_Beep_Success(); g_flagWifiConnected = false; }
+  if (g_flagWifiDisconnected){ enqueue_Beep_SOS();  g_flagWifiDisconnected = false; }
+  if (g_flagHttpStarted)     { enqueue_Beep_Success(); g_flagHttpStarted = false; }
+  if (g_flagHttpStopped)     { enqueue_Beep_SOS();  g_flagHttpStopped = false; }
   BeepEngine_update();
 
   if (millis() - lastTempUpdate >= TEMP_UPDATE_INTERVAL)
