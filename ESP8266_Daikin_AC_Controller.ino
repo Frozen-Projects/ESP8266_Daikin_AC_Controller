@@ -11,7 +11,7 @@
 #include <Wire.h>
 
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 
 // Message for notifications
 String notificationMessage = "";
@@ -25,10 +25,10 @@ ESP8266WebServer server(80);
 #pragma endregion NETWORK_SETTINGS
 
 #pragma region BUZZER_AUDIO
-#define PIN_BUZZER D7           // (GPIO13)
-#define BEEP_FREQ 1600        // Hz
-#define GAP_SHORT 250         // ms between beeps in a group
-#define GAP_GROUP 600         // ms between groups
+#define PIN_BUZZER D8           // (GPIO13)
+#define BEEP_FREQ 1600          // Hz
+#define GAP_SHORT 250           // ms between beeps in a group
+#define GAP_GROUP 600           // ms between groups
 
 // Pattern step encoding: positive => tone ON for that many ms, negative => silence for abs(ms)
 typedef struct
@@ -40,7 +40,7 @@ typedef struct
 static const int16_t PAT_ONE3_STEPS[] =
 {
   100,      // 100 ms tone
-  -1        // terminator marker (not used by engine, just for readability)
+  -1
 };
 
 static const uint8_t PAT_ONE3_COUNT = 1;
@@ -68,15 +68,15 @@ struct
   bool toneOn = false;
 } g_beep;
 
-// Queue flags (set from events / places where you want sounds)
+// Queue flags
 volatile bool g_flagWifiConnected = false;
 volatile bool g_flagWifiDisconnected = false;
 volatile bool g_flagHttpStarted = false;
 volatile bool g_flagHttpStopped = false;
-volatile uint8_t g_pendingShortBeeps = 0;   // queued 100 ms beeps (cap applied in enqueueOne3)
-static const uint16_t INTER_BEEP_GAP_MS = 120; // silence between chained beeps
-static bool g_inGap = false;                // true while we're in that brief silence
-static unsigned long g_gapStartMs = 0;      // when the gap started
+volatile uint8_t g_pendingShortBeeps = 0;
+static const uint16_t INTER_BEEP_GAP_MS = 120;
+static bool g_inGap = false;
+static unsigned long g_gapStartMs = 0;
 
 inline void BeepEngine_start(const BeepPattern& p)
 {
@@ -95,25 +95,20 @@ inline void BeepEngine_stop()
   g_beep.toneOn = false;
 }
 
-// Call this from loop()
-void BeepEngine_update() 
+void BeepEngine_update()
 {
-  // Handle inter-beep silent gap BEFORE any early returns.
   if (g_inGap) {
     if (millis() - g_gapStartMs >= INTER_BEEP_GAP_MS) {
       g_inGap = false;
-      // Restart the same short beep after the gap
       static const BeepPattern P = { PAT_ONE3_STEPS, PAT_ONE3_COUNT };
       BeepEngine_start(P);
     }
-    return; // while in gap, don't process steps
+    return;
   }
 
-  // Now we can safely early-return when nothing is active.
   if (!g_beep.active || g_beep.steps == nullptr || g_beep.count == 0) return;
 
   unsigned long now = millis();
-  // If just started a step, (re)arm tone/silence
   int16_t dur = g_beep.steps[g_beep.index];
   unsigned long stepDur = (dur >= 0 ? (unsigned long)dur : (unsigned long)(-dur));
 
@@ -122,31 +117,25 @@ void BeepEngine_update()
     else { noTone(PIN_BUZZER); g_beep.toneOn = false; }
   }
 
-  // Step complete?
   if (now - g_beep.stepStartMs >= stepDur)
   {
-    // Advance
     g_beep.index++;
     g_beep.stepStartMs = now;
 
     if (g_beep.index >= g_beep.count)
     {
-      // Pattern done
       BeepEngine_stop();
 
-      // If another short beep is queued, insert a brief silent gap, then replay the same pattern.
-      if (g_pendingShortBeeps > 0) 
+      if (g_pendingShortBeeps > 0)
       {
         g_pendingShortBeeps--;
         g_inGap = true;
         g_gapStartMs = now;
-        noTone(PIN_BUZZER); // ensure silence
+        noTone(PIN_BUZZER);
       }
-    } 
-    
+    }
     else
     {
-      // Prepare next step: set/clear tone right away
       int16_t nd = g_beep.steps[g_beep.index];
       if (nd > 0) { tone(PIN_BUZZER, BEEP_FREQ); g_beep.toneOn = true; }
       else { noTone(PIN_BUZZER); g_beep.toneOn = false; }
@@ -154,21 +143,11 @@ void BeepEngine_update()
   }
 }
 
-// Helper to enqueue concrete patterns via flags or direct calls
 inline void enqueueOne3()
 {
   static const BeepPattern P = { PAT_ONE3_STEPS, PAT_ONE3_COUNT };
-  
-  if (!g_beep.active && !g_inGap) 
-  {
-    BeepEngine_start(P);
-  } 
-  
-  else 
-  {
-    // already beeping (or in the short gap) -> queue one more beep
-    if (g_pendingShortBeeps < 5) g_pendingShortBeeps++;  // small cap to be safe
-  }
+  if (!g_beep.active && !g_inGap) { BeepEngine_start(P); }
+  else { if (g_pendingShortBeeps < 5) g_pendingShortBeeps++; }
 }
 
 inline void enqueueSOS()
@@ -178,77 +157,98 @@ inline void enqueueSOS()
 }
 #pragma endregion BUZZER_AUDIO
 
-#pragma region OLED
-#define OLED_SCL D1 // (GPIO5)
-#define OLED_SDA D2 // (GPIO4)
-#define OLED_RESET -1 // Reset pin not used on 0.91" OLED
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-void displayIPAddress()
-{
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println("Connected to WiFi");
-  display.println(ssid);
-  display.println("");
-  display.print("IP: ");
-  display.println(WiFi.localIP().toString());
-  display.display();
-}
-#pragma endregion OLED
-
 #pragma region IR__LED
 const uint16_t PIN_IRLED = D5;  // (GPIO14)
 IRDaikinESP ac((uint16_t)PIN_IRLED);
 #pragma endregion IR_LED
 
 #pragma region TEMPERATURE_SENSOR
-// DS18B20/DS1820 Temperature sensor setup
 #define PIN_TEMPERATURE D6      // (GPIO12)
 OneWire oneWire(PIN_TEMPERATURE);
 DallasTemperature sensors(&oneWire);
 float currentTemperature = -127.0;
 unsigned long lastTempUpdate = 0;
-const unsigned long TEMP_UPDATE_INTERVAL = 60000;  // Update every 60 seconds (1 minute)
+const unsigned long TEMP_UPDATE_INTERVAL = 60000;  // 1 minute
 #pragma endregion TEMPERATURE_SENSOR
 
 #pragma region AC_SETTINGS
 bool acPower = false;
-uint8_t acTemp = 23;  // Default temperature in Celsius
+uint8_t acTemp = 23;
 uint8_t acFanSpeed = 3;
 uint8_t acMode = kDaikinCool;
 unsigned long acTimerStart = 0;
-unsigned long acTimerDuration = 0;  // Duration in milliseconds (0 = no timer)
+unsigned long acTimerDuration = 0;  // ms (0 = no timer)
 #pragma endregion AC_SETTINGS
 
-// Update temperature from the DS1820/DS18B20 sensor
+#pragma region OLED
+#define OLED_SCL   D1   // Also known as SCK (GPIO5)
+#define OLED_SDA   D2   // (GPIO4)
+#define OLED_RESET -1   // not used on most 4-pin modules
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT 64
+
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+void displayOLED()
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+
+  display.println("Connected to WiFi");
+  display.println(ssid);
+  display.println("");
+
+  display.print("IP: ");
+  display.println(WiFi.localIP().toString());
+  display.println("");
+
+  display.print("Room Temp: ");
+  display.print(currentTemperature);
+  display.write(247); // ASCII Degree symbol.
+  display.print("C");
+  display.println("");
+
+  if (acTimerDuration > 0)
+  {
+    unsigned long elapsed = millis() - acTimerStart;
+    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
+    int remainingHours = remainingTime / 3600000UL;
+    int remainingMins  = (remainingTime / 60000UL) % 60;
+    String TimeString = String(remainingHours) + "h " + String(remainingMins) + "m ";
+
+    display.println("Remaining Time: ");
+    display.print(TimeString);
+    display.println("");
+  }
+
+  display.display();
+}
+#pragma endregion OLED
+
 void updateTemperature()
 {
   Serial.println("Requesting temperature...");
   sensors.requestTemperatures();
-  
+
   float tempC = sensors.getTempCByIndex(0);
-  
+
   if (tempC != DEVICE_DISCONNECTED_C)
   {
     currentTemperature = tempC;
     Serial.print("Temperature: ");
     Serial.println(currentTemperature);
-  } 
-
-  else 
+  }
+  else
   {
     Serial.println("Error: Could not read temperature data");
   }
-  
+
   lastTempUpdate = millis();
+  displayOLED();
 }
 
-// Handle refresh temperature request
 void handleRefreshTemp()
 {
   updateTemperature();
@@ -256,7 +256,6 @@ void handleRefreshTemp()
   server.send(303);
 }
 
-// Set default AC settings
 void setDefaultSettings()
 {
   ac.setFan(acFanSpeed);
@@ -268,27 +267,20 @@ void setDefaultSettings()
   ac.setPowerful(false);
 }
 
-// Apply current settings and send IR command
 void sendAcCommand()
 {
   ac.setPower(acPower);
   ac.setTemp(acTemp);
   ac.setFan(acFanSpeed);
   ac.send();
-  
-  // Debug output
+
   Serial.println("Sending IR Command:");
-  Serial.print("Power: ");
-  Serial.println(acPower ? "ON" : "OFF");
-  Serial.print("Temperature: ");
-  Serial.println(acTemp);
-  Serial.print("Mode: ");
-  Serial.println(acMode);
-  Serial.print("Fan Speed: ");
-  Serial.println(acFanSpeed);
+  Serial.print("Power: "); Serial.println(acPower ? "ON" : "OFF");
+  Serial.print("Temperature: "); Serial.println(acTemp);
+  Serial.print("Mode: "); Serial.println(acMode);
+  Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
 }
 
-// Root page handler
 void handleRoot()
 {
   String html = "<html><head>";
@@ -367,48 +359,47 @@ void handleRoot()
   html += "</script>";
   html += "</head><body>";
   html += "<h1>Daikin AC Control</h1>";
-  
+
   if (notificationMessage.length() > 0) {
     html += "<div id='notification' class='notification'>" + notificationMessage + "</div>";
     notificationMessage = "";
   }
-  
+
   html += "<div class='sensor'>Room Temperature: <span id='roomTemp'>";
   if (currentTemperature > -100)
   {
     html += String(currentTemperature, 1) + "&deg;C";
-  } 
+  }
   else
   {
     html += "<span class='error'>Sensor Error</span>";
   }
   html += "</span></div>";
-  
+
   html += "<button class='refresh' onclick='location.href=\"/refresh_temp\"'>Refresh Temperature</button><br>";
   html += "<p>AC Status: <span id='acStatus'>" + String(acPower ? "ON" : "OFF") + "</span></p>";
   html += "<p>Set Temperature: " + String(acTemp) + "&deg;C</p>";
   html += "<button onclick='location.href=\"/on\"'>Turn ON</button>";
   html += "<button class='off' onclick='location.href=\"/off\"'>Turn OFF</button><br>";
-  
-  // Changed to use direct onchange events (no form/submit buttons)
+
   html += "<div class='temp-control'>";
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
-  
-  for (int t = 18; t <= 28; t++) 
+
+  for (int t = 18; t <= 28; t++)
   {
     html += "<option value='" + String(t) + "'";
     if (t == acTemp) html += " selected";
     html += ">" + String(t) + "&deg;C</option>";
   }
-  
+
   html += "</select>";
   html += "</div>";
-  
+
   html += "<div class='fan-control'>";
   html += "<label for='fanSelect'>Select Fan Speed: </label>";
   html += "<select id='fanSelect' onchange='changeFan()'>";
-  
+
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
   for (int f = 2; f <= 5; f++) {
     html += "<option value='" + String(f) + "'";
@@ -416,25 +407,25 @@ void handleRoot()
     html += ">" + String(f) + "</option>";
   }
   html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
-  
+
   html += "</select>";
   html += "</div>";
-  
+
   html += "<div class='timer-control'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
-  
+
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
   for (int h = 1; h <= 4; h++) {
     html += "<option value='" + String(h) + "'";
     if (acTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
     html += ">" + String(h) + " Hour" + (h > 1 ? "s" : "") + "</option>";
   }
-  
+
   html += "</select>";
-  
+
   html += "<button class='clear' onclick='clearTimer()'>Clear Timer</button>";
-  
+
   html += "<p id='timerStatus' style='display: " + String(acTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
   if (acTimerDuration > 0 && acPower) {
     unsigned long elapsed = millis() - acTimerStart;
@@ -445,31 +436,28 @@ void handleRoot()
     html += "Timer: " + String(remainingHours) + "h " + String(remainingMins) + "m " + String(remainingSecs) + "s remaining";
   }
   html += "</p>";
-  
+
   html += "</div>";
-  
+
   html += "</body></html>";
-  
+
   server.send(200, "text/html", html);
 }
 
-// Handle power on
 void handleOn()
 {
   acPower = true;
-  
-  // Reset timer start time if timer is active
-  if (acTimerDuration > 0) 
+
+  if (acTimerDuration > 0)
   {
     acTimerStart = millis();
   }
-  
+
   sendAcCommand();
   server.sendHeader("Location", "/");
   server.send(303);
 }
 
-// Handle power off
 void handleOff()
 {
   acPower = false;
@@ -485,7 +473,6 @@ void handleToggle()
     handleOff();
     return;
   }
-
   else
   {
     handleOn();
@@ -493,13 +480,12 @@ void handleToggle()
   }
 }
 
-// Handle temperature changes
 void handleTemp()
 {
   if (server.hasArg("value"))
   {
     int temp = server.arg("value").toInt();
-    if (temp >= 18 && temp <= 30) {  // Typical Daikin temperature range
+    if (temp >= 18 && temp <= 30) {
       acTemp = temp;
       if (acPower) {
         sendAcCommand();
@@ -511,16 +497,15 @@ void handleTemp()
   server.send(303);
 }
 
-// Handle fan speed changes
 void handleFan()
 {
-  if (server.hasArg("value")) 
+  if (server.hasArg("value"))
   {
     int fan = server.arg("value").toInt();
-    if ((fan >= 2 && fan <= 5) || fan == kDaikinFanAuto || fan == kDaikinFanQuiet) 
+    if ((fan >= 2 && fan <= 5) || fan == kDaikinFanAuto || fan == kDaikinFanQuiet)
     {
       acFanSpeed = fan;
-      if (acPower) 
+      if (acPower)
       {
         sendAcCommand();
       }
@@ -530,7 +515,6 @@ void handleFan()
   server.send(303);
 }
 
-// Handle timer changes
 void handleTimer()
 {
   if (server.hasArg("value")) {
@@ -538,20 +522,19 @@ void handleTimer()
     if (hours >= 0 && hours <= 4)
     {
       unsigned long previousTimerDuration = acTimerDuration;
-      
+
       if (hours == 0){
-        acTimerDuration = 0; // No timer
+        acTimerDuration = 0;
       }
-      
       else
       {
-        acTimerDuration = (unsigned long)hours * 3600000UL; // Convert hours to milliseconds
+        acTimerDuration = (unsigned long)hours * 3600000UL;
         if (acPower)
         {
-          acTimerStart = millis(); // Start the timer if AC is on
+          acTimerStart = millis();
         }
       }
-      
+
       if (previousTimerDuration != acTimerDuration && acPower)
       {
         sendAcCommand();
@@ -560,33 +543,37 @@ void handleTimer()
       }
     }
   }
+
+  displayOLED();
+
   server.sendHeader("Location", "/");
   server.send(303);
 }
 
-// Handle clearing timer
 void handleClearTimer()
 {
   bool hadActiveTimer = (acTimerDuration > 0);
-  
+
   acTimerDuration = 0;
-  
+
   if (acPower)
   {
     sendAcCommand();
   }
-  
+
   if (hadActiveTimer)
   {
     notificationMessage = "Timer has been cleared";
   }
-  
+
   Serial.println("Timer cleared");
+
+  displayOLED();
+
   server.sendHeader("Location", "/");
   server.send(303);
 }
 
-// Return current AC status as JSON
 void handleStatus()
 {
   String json = "{";
@@ -595,84 +582,52 @@ void handleStatus()
   json += "\"roomTemperature\":" + String(currentTemperature) + ",";
   json += "\"mode\":" + String(acMode) + ",";
   json += "\"fanSpeed\":" + String(acFanSpeed);
-  
+
   if (acTimerDuration > 0 && acPower)
   {
     unsigned long elapsed = millis() - acTimerStart;
     unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     json += ",\"timerActive\":true";
-    json += ",\"timerRemaining\":" + String(remainingTime / 1000UL); // in seconds
-  } 
-
-  else 
+    json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
+  }
+  else
   {
     json += ",\"timerActive\":false";
     json += ",\"timerRemaining\":0";
   }
-  
+
   json += "}";
-  
+
   server.send(200, "application/json", json);
 }
 
 void setup()
 {
-  // Start serial
   Serial.begin(115200);
   delay(200);
 
-  // Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
   noTone(PIN_BUZZER);
-  
-  // Initialize the IR sender
+
   ac.begin();
   setDefaultSettings();
-  
-  // Initialize OLED
-  Wire.begin(OLED_SDA, OLED_SCL);
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) 
-  { 
-    // Address 0x3C for 128x32
-    Serial.println(F("SSD1306 allocation failed"));
-  } 
-  
-  else 
-  {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.println("Daikin AC Controller");
-    display.println("Connecting to WiFi...");
-    display.display();
-  }
-  
-  // Initialize the temperature sensors
-  Serial.println("Initializing temperature sensor...");
-  sensors.begin();
-  
-  // Get initial temperature reading
-  updateTemperature();
 
-  // WiFi event flags (non-blocking)
-  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt) 
+  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
   {
     Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
     g_flagWifiConnected = true;
   });
 
-  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt) 
+  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt)
   {
     Serial.printf("WiFi disconnected, reason=%d\n", evt.reason);
     g_flagWifiDisconnected = true;
   });
-  
-  // Connect to WiFi
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.println("Connecting to WiFi");
-  
+
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
@@ -684,11 +639,33 @@ void setup()
   Serial.println(WiFi.localIP());
 
   g_flagWifiConnected = true;
-  
-  // Display IP address on OLED
-  displayIPAddress();
-  
-  // Define API endpoints
+
+  // --- OLED (SH1106 128x64) ---
+  Wire.begin(OLED_SDA, OLED_SCL);
+  Wire.setClock(100000);                 // keep 100 kHz while testing stability
+  if (!display.begin(0x3C, true))        // SH1106: (i2c_addr, reset)
+  {
+    Serial.println(F("SH1106 init failed"));
+  }
+
+  else
+  {
+    display.setRotation(0);              // many 1.3" boards prefer 2; try 0/1/3 if needed
+    display.setContrast(0x2F);           // some clones behave better with lower contrast
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SH110X_WHITE);
+    display.setCursor(0, 0);
+    display.println("Daikin AC Controller");
+    display.println("Connecting to WiFi...");
+    display.display();
+  }
+  // ----------------------------
+
+  Serial.println("Initializing temperature sensor...");
+  sensors.begin();
+  updateTemperature();
+
   server.on("/", handleRoot);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
@@ -698,9 +675,8 @@ void setup()
   server.on("/timer", handleTimer);
   server.on("/clear_timer", handleClearTimer);
   server.on("/status", handleStatus);
-  server.on("/refresh_temp", handleRefreshTemp);  // Get room temperature from DS1820 sensor.
-  
-  // Start the server
+  server.on("/refresh_temp", handleRefreshTemp);
+
   server.begin();
   Serial.println("HTTP server started");
   g_flagHttpStarted = true;
@@ -710,27 +686,23 @@ void loop()
 {
   server.handleClient();
 
-  // Beeper engine & queued events
-  if (g_flagWifiConnected) { enqueueOne3(); g_flagWifiConnected = false; }
-  if (g_flagWifiDisconnected) { enqueueSOS(); g_flagWifiDisconnected = false; }
-  if (g_flagHttpStarted) { enqueueOne3(); g_flagHttpStarted = false; }
-  if (g_flagHttpStopped) { enqueueSOS(); g_flagHttpStopped = false; }
+  if (g_flagWifiConnected)   { enqueueOne3(); g_flagWifiConnected = false; }
+  if (g_flagWifiDisconnected){ enqueueSOS();  g_flagWifiDisconnected = false; }
+  if (g_flagHttpStarted)     { enqueueOne3(); g_flagHttpStarted = false; }
+  if (g_flagHttpStopped)     { enqueueSOS();  g_flagHttpStopped = false; }
   BeepEngine_update();
-  
-  // Update temperature reading every minute
+
   if (millis() - lastTempUpdate >= TEMP_UPDATE_INTERVAL)
   {
     updateTemperature();
   }
-  
-  // Check if timer is active and has expired
+
   if (acTimerDuration > 0 && acPower)
   {
     if (millis() - acTimerStart >= acTimerDuration)
     {
-      // Timer expired, turn off the AC
       acPower = false;
-      acTimerDuration = 0; // Reset timer
+      acTimerDuration = 0;
       sendAcCommand();
       Serial.println("Timer expired - AC turned off");
     }
