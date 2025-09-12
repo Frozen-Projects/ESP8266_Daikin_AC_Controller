@@ -347,13 +347,10 @@ void handleRoot()
   html += "}";
   html += "function setTimer() {";
   html += "  const timer = document.getElementById('timerSelect').value;";
-  html += "  if (timer == 0) {clearTimer()}";
-  html += "  else {location.href = '/timer?value=' + timer;}";
+  html += "  location.href = '/timer?value=' + timer;";
   html += "}";
   html += "function clearTimer() {";
-  html += "  if (confirm('Are you sure you want to clear the timer?')) {";
-  html += "    location.href = '/clear_timer';";
-  html += "  }";
+  html += "  location.href = '/clear_timer';";
   html += "}";
   html += "window.onload = function() {";
   html += "  refreshTemp();";
@@ -526,11 +523,45 @@ void handleFan()
   server.send(303);
 }
 
+void handleClearTimer()
+{
+  bool hadActiveTimer = (acTimerDuration > 0);
+
+  if (!hadActiveTimer)
+  {
+    return;
+  }
+
+  acTimerDuration = 0;
+  notificationMessage = "Timer has been cleared";
+  
+  if (acPower)
+  {
+    sendAcCommand();
+  }
+
+  displayOLED();
+  
+  Serial.println("Timer cleared");
+
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
 void handleTimer()
 {
-  if (server.hasArg("value")) {
+  if (server.hasArg("value"))
+  {
     int hours = server.arg("value").toInt();
-    if (hours >= 0 && hours <= 9)
+    
+    if (hours == 0)
+    {
+      // It has internal displayOLED and server functions.
+      handleClearTimer();
+      return;
+    }
+
+    else if (hours >= 1 && hours <= 9)
     {
       unsigned long previousTimerDuration = acTimerDuration;
 
@@ -556,33 +587,6 @@ void handleTimer()
       }
     }
   }
-
-  displayOLED();
-
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-
-void handleClearTimer()
-{
-  bool hadActiveTimer = (acTimerDuration > 0);
-
-  if (!hadActiveTimer)
-  {
-    return;
-  }
-
-  acTimerDuration = 0;
-  notificationMessage = "Timer has been cleared";
-  
-  if (acPower)
-  {
-    sendAcCommand();
-  }
-
-  displayOLED();
-  
-  Serial.println("Timer cleared");
 
   server.sendHeader("Location", "/");
   server.send(303);
