@@ -3,7 +3,11 @@
 #include <ESP8266WebServer.h>
 
 #include <IRremoteESP8266.h>
+#include <IRac.h>
+#include <IRtext.h>
 #include <IRsend.h>
+#include <IRrecv.h>
+#include <IRutils.h>
 #include <ir_Daikin.h>
 
 #include <OneWire.h>
@@ -165,6 +169,17 @@ inline void enqueue_Beep_SOS()
 const uint16_t PIN_IRLED = D5;  // (GPIO14)
 IRDaikinESP ac((uint16_t)PIN_IRLED);
 #pragma endregion IR_LED
+
+#pragma region IR_RECEIVER
+const uint16_t kRecvPin = D7;  // D5 on ESP8266
+const uint32_t kBaudRate = 115200;
+const uint16_t kCaptureBufferSize = 1024;
+const uint8_t kTimeout = 50;  // Timeout in milliseconds
+
+// Use turn on the save buffer feature for more complete capture coverage.
+IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
+decode_results results;  // Store the results of the IR decoding
+#pragma endregion IR_RECEIVER
 
 #pragma region TEMPERATURE_SENSOR
 #define PIN_TEMPERATURE D6      // (GPIO12)
@@ -513,12 +528,14 @@ void handleFan()
     if ((fan >= 1 && fan <= 5) || fan == kDaikinFanAuto || fan == kDaikinFanQuiet)
     {
       acFanSpeed = fan;
+      
       if (acPower)
       {
         sendAcCommand();
       }
     }
   }
+
   server.sendHeader("Location", "/");
   server.send(303);
 }
@@ -620,11 +637,147 @@ void handleStatus()
   server.send(200, "application/json", json);
 }
 
+// Initialize IR receiver
+void setupIRReceiver()
+{
+  irrecv.enableIRIn();  // Start the receiver
+  Serial.print("IR Receiver initialized on pin : ");
+  Serial.println(kRecvPin);
+}
+
+// Display encoding type
+void encoding(const decode_type_t protocol)
+{
+  switch (protocol)
+  {
+    case DAIKIN:
+      Serial.print("Decoded DAIKIN");
+      break;
+    case DAIKIN2:
+      Serial.print("Decoded DAIKIN2");
+      break;
+    case DAIKIN216:
+      Serial.print("Decoded DAIKIN216");
+      break;
+    case DAIKIN128:
+      Serial.print("Decoded DAIKIN128");
+      break;
+    case DAIKIN152:
+      Serial.print("Decoded DAIKIN152");
+      break;
+    case DAIKIN64:
+      Serial.print("Decoded DAIKIN64");
+      break;
+    default:
+      Serial.print("Decoded ");
+      Serial.print(typeToString(protocol));
+  }
+}
+
+// Process the Daikin message to identify power state
+void parseDaikin(const decode_results *results)
+{
+  IRDaikinESP ac(0);
+  ac.setRaw(results->state);
+  
+  // Print the basic protocol information
+  Serial.print("Protocol: ");
+  Serial.println(typeToString(results->decode_type));
+  
+  // Print the complete state
+  Serial.print("State: ");
+  for (uint16_t i = 0; i < results->bits / 8; i++) 
+  {
+    Serial.printf("%02X", results->state[i]);
+  }
+  Serial.println("");
+  
+  // Print power status
+  acPower = ac.getPower();
+  Serial.print("Power: ");
+  Serial.println(acPower ? "ON" : "OFF");
+
+  // Print other settings if available
+  if (results->decode_type == DAIKIN)
+  {
+    acMode = ac.getMode();
+    Serial.print("Mode: ");
+    switch(acMode)
+    {
+      case kDaikinAuto: Serial.println("Auto"); break;
+      case kDaikinCool: Serial.println("Cool"); break;
+      case kDaikinHeat: Serial.println("Heat"); break;
+      case kDaikinDry: Serial.println("Dry"); break;
+      case kDaikinFan: Serial.println("Fan"); break;
+      default: Serial.println("Unknown");
+    }
+    
+    const float temporary_ac_temp = ac.getTemp();
+    acTemp = int(trunc(temporary_ac_temp));
+    Serial.print("Temperature: ");
+    Serial.println(temporary_ac_temp);
+
+    acFanSpeed = ac.getFan();
+    Serial.print("Fan Speed: ");
+    Serial.println(ac.getFan());
+
+    Serial.print("Is Off Timer Enabled: ");
+    Serial.println(ac.getOffTimerEnabled() ? "YES" : "NO");
+
+    // If printed value is 1536, it means timer is off.
+    Serial.print("Off Time: ");
+    Serial.println(ac.getOffTime());
+
+    Serial.print("Is On Timer Enabled: ");
+    Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
+
+    Serial.print("On Time: ");
+    Serial.println(ac.getOnTime());
+
+    // Refresh Web UI.
+    server.sendHeader("Location", "/");
+    server.send(303);
+  }
+  
+  Serial.println("----------------------------------------");
+}
+
+void processIrMessage()
+{
+  if (irrecv.decode(&results))
+    {
+      // Display basic information
+      Serial.println();
+      Serial.print("IR Signal Received at ");
+      Serial.println(millis());
+      encoding(results.decode_type);
+      Serial.print(" (");
+      Serial.print(results.bits, DEC);
+      Serial.println(" bits)");
+
+      // If it's a Daikin protocol, process it in detail
+      if (results.decode_type == DAIKIN || results.decode_type == DAIKIN2 || results.decode_type == DAIKIN216 || results.decode_type == DAIKIN128 || results.decode_type == DAIKIN152 || results.decode_type == DAIKIN64)
+      {
+        parseDaikin(&results);
+      } 
+      
+      else 
+      {
+        // For non-Daikin signals, show the raw data
+        Serial.println("Raw data (probably not Daikin):");
+        Serial.println(resultToSourceCode(&results));
+      }
+      
+      irrecv.resume();
+    }
+}
+
 void setup()
 {
   Serial.begin(115200);
   delay(200);
 
+  // Setup: Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
   noTone(PIN_BUZZER);
 
@@ -633,7 +786,7 @@ void setup()
 
   onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
   {
-    Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
     g_flagWifiConnected = true;
   });
 
@@ -654,7 +807,10 @@ void setup()
   }
 
   Serial.println("");
-  Serial.print("Connected to WiFi. IP address: ");
+  Serial.print("Connected to WiFi: ");
+  Serial.println(ssid);
+
+  Serial.print("Local IP: ");
   Serial.println(WiFi.localIP());
 
   g_flagWifiConnected = true;
@@ -699,6 +855,8 @@ void setup()
   server.begin();
   Serial.println("HTTP server started");
   g_flagHttpStarted = true;
+
+  setupIRReceiver();
 }
 
 void loop()
@@ -726,4 +884,6 @@ void loop()
       Serial.println("Timer expired - AC turned off");
     }
   }
+
+  processIrMessage();
 }
