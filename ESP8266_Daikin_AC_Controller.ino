@@ -328,18 +328,28 @@ void handleRoot()
   html += "  fetch('/status')";
   html += "    .then(response => response.json())";
   html += "    .then(data => {";
-  html += "      const temp = document.getElementById('roomTemp');";
-  html += "      if(data.roomTemperature > -100) {";
-  html += "        temp.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
-  html += "        temp.className = '';";
+  html += "      const tempEl = document.getElementById('roomTemp');";
+  html += "      if (data.roomTemperature > -100) {";
+  html += "        tempEl.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
+  html += "        tempEl.className = '';";
   html += "      } else {";
-  html += "        temp.innerText = 'Sensor Error';";
-  html += "        temp.className = 'error';";
+  html += "        tempEl.innerText = 'Sensor Error';";
+  html += "        tempEl.className = 'error';";
   html += "      }";
   html += "      const acStatus = document.getElementById('acStatus');";
   html += "      if (acStatus) acStatus.innerText = data.power ? 'ON' : 'OFF';";
+  html += "      const setTemp = document.getElementById('setTemp');";
+  html += "      if (setTemp) setTemp.innerText = String(data.temperature) + '\\u00B0C';";
+  html += "      const tempSelect = document.getElementById('tempSelect');";
+  html += "      if (tempSelect && tempSelect.value !== String(data.temperature)) {";
+  html += "        tempSelect.value = String(data.temperature);";
+  html += "      }";
+  html += "      const fanSelect = document.getElementById('fanSelect');";
+  html += "      if (fanSelect && fanSelect.value !== String(data.fanSpeed)) {";
+  html += "        fanSelect.value = String(data.fanSpeed);";
+  html += "      }";
   html += "      const timerStatus = document.getElementById('timerStatus');";
-  html += "      if(data.timerActive) {";
+  html += "      if (data.timerActive) {";
   html += "        const total = Math.max(0, Math.floor(data.timerRemaining));";
   html += "        const hours = Math.floor(total / 3600);";
   html += "        const mins = Math.floor((total % 3600) / 60);";
@@ -385,6 +395,7 @@ void handleRoot()
   }
 
   html += "<div class='sensor'>Room Temperature: <span id='roomTemp'>";
+
   if (currentTemperature > -100)
   {
     html += String(currentTemperature, 1) + "&deg;C";
@@ -398,45 +409,42 @@ void handleRoot()
 
   html += "<button class='refresh' onclick='location.href=\"/refresh_temp\"'>Refresh Temperature</button><br>";
   html += "<p>AC Status: <span id='acStatus'>" + String(acPower ? "ON" : "OFF") + "</span></p>";
-  html += "<p>Set Temperature: " + String(acTemp) + "&deg;C</p>";
+  html += "<p>Set Temperature: <span id='setTemp'>" + String(acTemp) + "&deg;C</span></p>";
   html += "<button onclick='location.href=\"/on\"'>Turn ON</button>";
   html += "<button class='off' onclick='location.href=\"/off\"'>Turn OFF</button><br>";
-
   html += "<div class='temp-control'>";
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
-
+  
   for (int t = 18; t <= 32; t++)
   {
     html += "<option value='" + String(t) + "'";
     if (t == acTemp) html += " selected";
     html += ">" + String(t) + "&deg;C</option>";
   }
-
+  
   html += "</select>";
   html += "</div>";
-
   html += "<div class='fan-control'>";
   html += "<label for='fanSelect'>Select Fan Speed: </label>";
   html += "<select id='fanSelect' onchange='changeFan()'>";
-
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
+  
   for (int f = 1; f <= 5; f++)
   {
     html += "<option value='" + String(f) + "'";
     if (f == acFanSpeed) html += " selected";
     html += ">" + String(f) + "</option>";
   }
-  html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
 
+  html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
   html += "</select>";
   html += "</div>";
-
   html += "<div class='timer-control'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
-
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
+  
   for (int h = 1; h <= 9; h++)
   {
     html += "<option value='" + String(h) + "'";
@@ -486,6 +494,7 @@ void handleOff()
   server.send(303);
 }
 
+// It is for WebAPIs. Not exposed to web UI.
 void handleToggle()
 {
   if (acPower == true)
@@ -777,45 +786,7 @@ void setup()
   Serial.begin(115200);
   delay(200);
 
-  // Setup: Buzzer
-  pinMode(PIN_BUZZER, OUTPUT);
-  noTone(PIN_BUZZER);
-
-  ac.begin();
-  setDefaultSettings();
-
-  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
-  {
-    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
-    g_flagWifiConnected = true;
-  });
-
-  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt)
-  {
-    Serial.printf("WiFi disconnected, reason=%d\n", evt.reason);
-    g_flagWifiDisconnected = true;
-  });
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.println("Connecting to WiFi");
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.print("Connected to WiFi: ");
-  Serial.println(ssid);
-
-  Serial.print("Local IP: ");
-  Serial.println(WiFi.localIP());
-
-  g_flagWifiConnected = true;
-
-  // --- OLED (SH1106 128x64) ---
+#pragma region SETUP_OLED
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);                 // keep 100 kHz while testing stability
   if (!display.begin(0x3C, true))        // SH1106: (i2c_addr, reset)
@@ -835,12 +806,69 @@ void setup()
     display.println("Connecting to WiFi...");
     display.display();
   }
-  // ----------------------------
+#pragma endregion SETUP_OLED
 
+#pragma region SETUP_BUZZER
+  pinMode(PIN_BUZZER, OUTPUT);
+  noTone(PIN_BUZZER);
+#pragma endregion SETUP_BUZZER
+
+#pragma region SETUP_AC
+  ac.begin();
+  setDefaultSettings();
+#pragma endregion SETUP_AC
+
+#pragma region SETUP_WIFI
+  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
+  {
+    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    g_flagWifiConnected = true;
+  });
+
+  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt)
+  {
+    String WiFi_Fail_Message = "WiFi disconnected, reason=" + String(evt.reason);
+    Serial.println(WiFi_Fail_Message);
+    g_flagWifiDisconnected = true;
+
+    display.setRotation(0);              // many 1.3" boards prefer 2; try 0/1/3 if needed
+    display.setContrast(0x2F);           // some clones behave better with lower contrast
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SH110X_WHITE);
+    display.setCursor(0, 0);
+    display.println("Daikin AC Controller");
+    display.println(WiFi_Fail_Message);
+    display.display();
+  });
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.print("Connected to WiFi: ");
+  Serial.println(ssid);
+
+  Serial.print("Local IP: ");
+  Serial.println(WiFi.localIP());
+#pragma endregion SETUP_WIFI
+
+#pragma region SETUP_DS1820
   Serial.println("Initializing temperature sensor...");
   sensors.begin();
+  
+  // it has internal displayOLED() function.
   updateTemperature();
+#pragma endregion SETUP_DS1820
 
+#pragma region SETUP_HTTP
   server.on("/", handleRoot);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
@@ -855,6 +883,7 @@ void setup()
   server.begin();
   Serial.println("HTTP server started");
   g_flagHttpStarted = true;
+#pragma endregion SETUP_HTTP
 
   setupIRReceiver();
 }
