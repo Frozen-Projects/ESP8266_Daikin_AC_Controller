@@ -193,8 +193,8 @@ bool acPower = false;
 uint8_t acTemp = 23;
 uint8_t acFanSpeed = 3;
 uint8_t acMode = kDaikinCool;
-unsigned long acOffTimerStart = 0;
-unsigned long acOffTimerDuration = 0;  // ms (0 = no timer)
+unsigned long acTimerStart = 0;
+unsigned long acTimerDuration = 0;  // ms (0 = no timer)
 #pragma endregion AC_SETTINGS
 
 #pragma region OLED
@@ -203,7 +203,6 @@ unsigned long acOffTimerDuration = 0;  // ms (0 = no timer)
 #define OLED_RESET -1   // not used on most 4-pin modules
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
-
 Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 void displayOLED()
@@ -227,10 +226,10 @@ void displayOLED()
   display.print("C");
   display.println("");
 
-  if (acOffTimerDuration > 0)
+  if (acTimerDuration > 0)
   {
-    unsigned long elapsed = millis() - acOffTimerStart;
-    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
+    unsigned long elapsed = millis() - acTimerStart;
+    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     int remainingHours = remainingTime / 3600000UL;
     int remainingMins  = (remainingTime / 60000UL) % 60;
     String TimeString = String(remainingHours) + "h " + String(remainingMins) + "m ";
@@ -244,7 +243,7 @@ void displayOLED()
 }
 #pragma endregion OLED
 
-// Web UI is in here.
+// WebUI
 void handleRoot()
 {
   String html = "<html><head>";
@@ -267,79 +266,49 @@ void handleRoot()
   html += "@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; display: none; } }";
   html += "</style>";
   html += "<script>";
-  
   html += "function refreshTemp() {";
   html += "  fetch('/status')";
   html += "    .then(response => response.json())";
   html += "    .then(data => {";
-  
-  html += "      const tempEl = document.getElementById('roomTemp');";
-  html += "      if (data.roomTemperature > -100) {";
-  html += "        tempEl.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
-  html += "        tempEl.className = '';";
+  html += "      const temp = document.getElementById('roomTemp');";
+  html += "      if(data.roomTemperature > -100) {";
+  html += "        temp.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
+  html += "        temp.className = '';";
   html += "      } else {";
-  html += "        tempEl.innerText = 'Sensor Error';";
-  html += "        tempEl.className = 'error';";
+  html += "        temp.innerText = 'Sensor Error';";
+  html += "        temp.className = 'error';";
   html += "      }";
-
   html += "      const acStatus = document.getElementById('acStatus');";
   html += "      if (acStatus) acStatus.innerText = data.power ? 'ON' : 'OFF';";
-
-  html += "      const setTemp = document.getElementById('setTemp');";
-  html += "      if (setTemp) setTemp.innerText = String(data.temperature) + '\\u00B0C';";
-  html += "      const tempSelect = document.getElementById('tempSelect');";
-  html += "      if (tempSelect && tempSelect.value !== String(data.temperature)) {";
-  html += "        tempSelect.value = String(data.temperature);";
-  html += "      }";
-
-  html += "      const fanSelect = document.getElementById('fanSelect');";
-  html += "      if (fanSelect && fanSelect.value !== String(data.fanSpeed)) {";
-  html += "        fanSelect.value = String(data.fanSpeed);";
-  html += "      }";
-  
   html += "      const timerStatus = document.getElementById('timerStatus');";
-  html += "      if (data.timerActive) {";
+  html += "      if(data.timerActive) {";
   html += "        const total = Math.max(0, Math.floor(data.timerRemaining));";
   html += "        const hours = Math.floor(total / 3600);";
   html += "        const mins = Math.floor((total % 3600) / 60);";
   html += "        const secs = total % 60;";
   html += "        timerStatus.innerHTML = 'Timer: ' + hours + 'h ' + mins + 'm ' + secs + 's remaining';";
   html += "        timerStatus.style.display = 'block';";
-  
-  html += "        const timer_value = parseInt(data.timerDuration);";
-  html += "         if(timer_value > 0) {";
-  html += "           const duration = (timer_value / 60);";
-  html += "           timerSelect.value = String(duration);";
-  html += "         }";
-
   html += "      } else {";
   html += "        timerStatus.style.display = 'none';";
-  html += "        timerSelect.value = String(0);";
   html += "      }";
-  
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
   html += "}";
-  
   html += "function changeTemp() {";
   html += "  const temp = document.getElementById('tempSelect').value;";
   html += "  location.href = '/temp?value=' + temp;";
   html += "}";
-  
   html += "function changeFan() {";
   html += "  const fan = document.getElementById('fanSelect').value;";
   html += "  location.href = '/fan?value=' + fan;";
   html += "}";
-  
   html += "function setTimer() {";
   html += "  const timer = document.getElementById('timerSelect').value;";
   html += "  location.href = '/timer?value=' + timer;";
   html += "}";
-  
   html += "function clearTimer() {";
   html += "  location.href = '/clear_timer';";
   html += "}";
-  
   html += "window.onload = function() {";
   html += "  refreshTemp();";
   html += "  setTimeout(function() {";
@@ -358,7 +327,6 @@ void handleRoot()
   }
 
   html += "<div class='sensor'>Room Temperature: <span id='roomTemp'>";
-
   if (currentTemperature > -100)
   {
     html += String(currentTemperature, 1) + "&deg;C";
@@ -372,56 +340,59 @@ void handleRoot()
 
   html += "<button class='refresh' onclick='location.href=\"/refresh_temp\"'>Refresh Temperature</button><br>";
   html += "<p>AC Status: <span id='acStatus'>" + String(acPower ? "ON" : "OFF") + "</span></p>";
-  html += "<p>Set Temperature: <span id='setTemp'>" + String(acTemp) + "&deg;C</span></p>";
+  html += "<p>Set Temperature: " + String(acTemp) + "&deg;C</p>";
   html += "<button onclick='location.href=\"/on\"'>Turn ON</button>";
   html += "<button class='off' onclick='location.href=\"/off\"'>Turn OFF</button><br>";
+
   html += "<div class='temp-control'>";
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
-  
+
   for (int t = 18; t <= 32; t++)
   {
     html += "<option value='" + String(t) + "'";
     if (t == acTemp) html += " selected";
     html += ">" + String(t) + "&deg;C</option>";
   }
-  
+
   html += "</select>";
   html += "</div>";
+
   html += "<div class='fan-control'>";
   html += "<label for='fanSelect'>Select Fan Speed: </label>";
   html += "<select id='fanSelect' onchange='changeFan()'>";
+
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
-  
   for (int f = 1; f <= 5; f++)
   {
     html += "<option value='" + String(f) + "'";
     if (f == acFanSpeed) html += " selected";
     html += ">" + String(f) + "</option>";
   }
-
   html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
+
   html += "</select>";
   html += "</div>";
+
   html += "<div class='timer-control'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
-  html += "<option value='0'" + String(acOffTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
-  
+
+  html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
   for (int h = 1; h <= 9; h++)
   {
     html += "<option value='" + String(h) + "'";
-    if (acOffTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
+    if (acTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
     html += ">" + String(h) + " Hour" + (h > 1 ? "s" : "") + "</option>";
   }
 
   html += "</select>";
 
-  html += "<p id='timerStatus' style='display: " + String(acOffTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
-  if (acOffTimerDuration > 0 && acPower)
+  html += "<p id='timerStatus' style='display: " + String(acTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
+  if (acTimerDuration > 0 && acPower)
   {
-    unsigned long elapsed = millis() - acOffTimerStart;
-    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
+    unsigned long elapsed = millis() - acTimerStart;
+    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     int remainingHours = remainingTime / 3600000UL;
     int remainingMins  = (remainingTime / 60000UL) % 60;
     int remainingSecs  = (remainingTime / 1000UL) % 60;
@@ -444,20 +415,18 @@ void handleStatus()
   json += "\"mode\":" + String(acMode) + ",";
   json += "\"fanSpeed\":" + String(acFanSpeed);
 
-  if (acOffTimerDuration > 0 && acPower)
+  if (acTimerDuration > 0 && acPower)
   {
-    unsigned long elapsed = millis() - acOffTimerStart;
-    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
+    unsigned long elapsed = millis() - acTimerStart;
+    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     json += ",\"timerActive\":true";
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
-    json += ",\"timerDuration\":" + String(acOffTimerDuration / 60000UL);
   }
 
   else
   {
     json += ",\"timerActive\":false";
     json += ",\"timerRemaining\":0";
-    json += ",\"timerDuration\":0";
   }
 
   json += "}";
@@ -525,9 +494,9 @@ void handleOn()
 {
   acPower = true;
 
-  if (acOffTimerDuration > 0)
+  if (acTimerDuration > 0)
   {
-    acOffTimerStart = millis();
+    acTimerStart = millis();
   }
 
   sendAcCommand();
@@ -543,7 +512,6 @@ void handleOff()
   server.send(303);
 }
 
-// It is for WebAPIs. Not exposed to web UI.
 void handleToggle()
 {
   if (acPower == true)
@@ -598,16 +566,16 @@ void handleFan()
   server.send(303);
 }
 
-void handleClearOffTimer()
+void handleClearTimer()
 {
-  bool hadActiveTimer = (acOffTimerDuration > 0);
+  bool hadActiveTimer = (acTimerDuration > 0);
 
   if (!hadActiveTimer)
   {
     return;
   }
 
-  acOffTimerDuration = 0;
+  acTimerDuration = 0;
   notificationMessage = "Timer has been cleared";
   
   if (acPower)
@@ -623,7 +591,7 @@ void handleClearOffTimer()
   server.send(303);
 }
 
-void handleOffTimer()
+void handleTimer()
 {
   if (server.hasArg("value"))
   {
@@ -632,17 +600,26 @@ void handleOffTimer()
     if (hours == 0)
     {
       // It has internal displayOLED and server functions.
-      handleClearOffTimer();
+      handleClearTimer();
       return;
     }
 
     else if (hours >= 1 && hours <= 9)
     {
-      acOffTimerDuration = (unsigned long)hours * 3600000UL;
-      acOffTimerStart = millis();
+      unsigned long previousTimerDuration = acTimerDuration;
 
-      sendAcCommand();
-      notificationMessage = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
+      acTimerDuration = (unsigned long)hours * 3600000UL;
+      if (acPower)
+      {
+        acTimerStart = millis();
+      }
+
+      if (previousTimerDuration != acTimerDuration && acPower)
+      {
+        sendAcCommand();
+        String message = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
+        notificationMessage = message;
+      }
     }
   }
 
@@ -657,7 +634,7 @@ void setupIRReceiver()
   Serial.println(kRecvPin);
 }
 
-void printIrProtocol(const decode_type_t protocol)
+void printDaikingProtocol(const decode_type_t protocol)
 {
   switch (protocol)
   {
@@ -685,7 +662,6 @@ void printIrProtocol(const decode_type_t protocol)
   }
 }
 
-// Process the Daikin message to identify power state
 void parseDaikin(const decode_results *results)
 {
   IRDaikinESP ac(0);
@@ -735,19 +711,14 @@ void parseDaikin(const decode_results *results)
     Serial.print("Is Off Timer Enabled: ");
     Serial.println(ac.getOffTimerEnabled() ? "YES" : "NO");
 
-    // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
-    const uint16_t  OffTime_Minutes = ac.getOffTime();
-    Serial.print("Off Time (min): ");
-    Serial.println(OffTime_Minutes);
-
-    acOffTimerDuration = OffTime_Minutes != 1536 ? (unsigned long)OffTime_Minutes * 60000UL : 0;
-    acOffTimerStart = OffTime_Minutes != 1536 ? millis() : 0;
+    // If printed value is 1536, it means timer is off.
+    Serial.print("Off Time: ");
+    Serial.println(ac.getOffTime());
 
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
 
-    // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
-    Serial.print("On Time (min): ");
+    Serial.print("On Time: ");
     Serial.println(ac.getOnTime());
 
     // Refresh Web UI.
@@ -761,14 +732,13 @@ void parseDaikin(const decode_results *results)
 void processIrMessage()
 {
   decode_results results;
-  
   if (irrecv.decode(&results))
     {
       // Display basic information
       Serial.println();
       Serial.print("IR Signal Received at ");
       Serial.println(millis());
-      printIrProtocol(results.decode_type);
+      printDaikingProtocol(results.decode_type);
       Serial.print(" (");
       Serial.print(results.bits, DEC);
       Serial.println(" bits)");
@@ -787,7 +757,6 @@ void processIrMessage()
       }
       
       irrecv.resume();
-      memset(&results, 0, sizeof(decode_results));
     }
 }
 
@@ -796,7 +765,43 @@ void setup()
   Serial.begin(115200);
   delay(200);
 
-#pragma region SETUP_OLED
+  // Setup: Buzzer
+  pinMode(PIN_BUZZER, OUTPUT);
+  noTone(PIN_BUZZER);
+
+  ac.begin();
+  setDefaultSettings();
+
+  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
+  {
+    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    g_flagWifiConnected = true;
+  });
+
+  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt)
+  {
+    Serial.printf("WiFi disconnected, reason=%d\n", evt.reason);
+    g_flagWifiDisconnected = true;
+  });
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.print("Connected to WiFi: ");
+  Serial.println(ssid);
+
+  Serial.print("Local IP: ");
+  Serial.println(WiFi.localIP());
+
+  // --- OLED (SH1106 128x64) ---
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);                 // keep 100 kHz while testing stability
   if (!display.begin(0x3C, true))        // SH1106: (i2c_addr, reset)
@@ -816,84 +821,26 @@ void setup()
     display.println("Connecting to WiFi...");
     display.display();
   }
-#pragma endregion SETUP_OLED
+  // ----------------------------
 
-#pragma region SETUP_BUZZER
-  pinMode(PIN_BUZZER, OUTPUT);
-  noTone(PIN_BUZZER);
-#pragma endregion SETUP_BUZZER
-
-#pragma region SETUP_AC
-  ac.begin();
-  setDefaultSettings();
-#pragma endregion SETUP_AC
-
-#pragma region SETUP_WIFI
-  onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
-  {
-    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
-    g_flagWifiConnected = true;
-  });
-
-  onDisconnectedHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& evt)
-  {
-    String WiFi_Fail_Message = "WiFi disconnected, reason=" + String(evt.reason);
-    Serial.println(WiFi_Fail_Message);
-    g_flagWifiDisconnected = true;
-
-    display.setRotation(0);              // many 1.3" boards prefer 2; try 0/1/3 if needed
-    display.setContrast(0x2F);           // some clones behave better with lower contrast
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SH110X_WHITE);
-    display.setCursor(0, 0);
-    display.println("Daikin AC Controller");
-    display.println(WiFi_Fail_Message);
-    display.display();
-  });
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.println("Connecting to WiFi");
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.print("Connected to WiFi: ");
-  Serial.println(ssid);
-
-  Serial.print("Local IP: ");
-  Serial.println(WiFi.localIP());
-#pragma endregion SETUP_WIFI
-
-#pragma region SETUP_DS1820
   Serial.println("Initializing temperature sensor...");
   sensors.begin();
-  
-  // it has internal displayOLED() function.
   updateTemperature();
-#pragma endregion SETUP_DS1820
 
-#pragma region SETUP_HTTP
   server.on("/", handleRoot);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
   server.on("/toggle", handleToggle);
   server.on("/temp", handleTemp);
   server.on("/fan", handleFan);
-  server.on("/timer", handleOffTimer);
-  server.on("/clear_timer", handleClearOffTimer);
+  server.on("/timer", handleTimer);
+  server.on("/clear_timer", handleClearTimer);
   server.on("/status", handleStatus);
   server.on("/refresh_temp", handleRefreshTemp);
 
   server.begin();
   Serial.println("HTTP server started");
   g_flagHttpStarted = true;
-#pragma endregion SETUP_HTTP
 
   setupIRReceiver();
 }
@@ -913,12 +860,12 @@ void loop()
     updateTemperature();
   }
 
-  if (acOffTimerDuration > 0 && acPower)
+  if (acTimerDuration > 0 && acPower)
   {
-    if (millis() - acOffTimerStart >= acOffTimerDuration)
+    if (millis() - acTimerStart >= acTimerDuration)
     {
       acPower = false;
-      acOffTimerDuration = 0;
+      acTimerDuration = 0;
       sendAcCommand();
       Serial.println("Timer expired - AC turned off");
     }
