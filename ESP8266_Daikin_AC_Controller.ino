@@ -740,16 +740,8 @@ void parseDaikin(const decode_results *results)
     Serial.print("Off Time (min): ");
     Serial.println(OffTime_Minutes);
 
-    if (OffTime_Minutes != 1536)
-    {
-      acOffTimerDuration = (unsigned long)OffTime_Minutes * 60000UL;
-      acOffTimerStart = millis();
-    }
-
-    else
-    {
-      acOffTimerDuration = 0;
-    }
+    acOffTimerDuration = OffTime_Minutes != 1536 ? (unsigned long)OffTime_Minutes * 60000UL : 0;
+    acOffTimerStart = OffTime_Minutes != 1536 ? millis() : 0;
 
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
