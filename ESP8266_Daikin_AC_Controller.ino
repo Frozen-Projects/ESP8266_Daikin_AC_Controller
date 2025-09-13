@@ -568,25 +568,15 @@ void handleFan()
 
 void handleClearTimer()
 {
-  bool hadActiveTimer = (acTimerDuration > 0);
-
-  if (!hadActiveTimer)
-  {
-    return;
-  }
+  const String Message = "Timer has been cleared"; 
+  notificationMessage = Message;
+  Serial.println(Message);
 
   acTimerDuration = 0;
-  notificationMessage = "Timer has been cleared";
-  
-  if (acPower)
-  {
-    sendAcCommand();
-  }
 
+  sendAcCommand();
   displayOLED();
   
-  Serial.println("Timer cleared");
-
   server.sendHeader("Location", "/");
   server.send(303);
 }
