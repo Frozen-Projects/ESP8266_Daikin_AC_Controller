@@ -177,7 +177,6 @@ const uint8_t kTimeout = 50;  // Timeout in milliseconds
 
 // Use turn on the save buffer feature for more complete capture coverage.
 IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
-decode_results results;  // Store the results of the IR decoding
 #pragma endregion IR_RECEIVER
 
 #pragma region TEMPERATURE_SENSOR
@@ -194,8 +193,8 @@ bool acPower = false;
 uint8_t acTemp = 23;
 uint8_t acFanSpeed = 3;
 uint8_t acMode = kDaikinCool;
-unsigned long acTimerStart = 0;
-unsigned long acTimerDuration = 0;  // ms (0 = no timer)
+unsigned long acOffTimerStart = 0;
+unsigned long acOffTimerDuration = 0;  // ms (0 = no timer)
 #pragma endregion AC_SETTINGS
 
 #pragma region OLED
@@ -228,10 +227,10 @@ void displayOLED()
   display.print("C");
   display.println("");
 
-  if (acTimerDuration > 0)
+  if (acOffTimerDuration > 0)
   {
-    unsigned long elapsed = millis() - acTimerStart;
-    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
+    unsigned long elapsed = millis() - acOffTimerStart;
+    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
     int remainingHours = remainingTime / 3600000UL;
     int remainingMins  = (remainingTime / 60000UL) % 60;
     String TimeString = String(remainingHours) + "h " + String(remainingMins) + "m ";
@@ -244,62 +243,6 @@ void displayOLED()
   display.display();
 }
 #pragma endregion OLED
-
-// This function is called every minute. So, we use it to update OLED, too
-void updateTemperature()
-{
-  Serial.println("Requesting temperature...");
-  sensors.requestTemperatures();
-
-  float tempC = sensors.getTempCByIndex(0);
-
-  if (tempC != DEVICE_DISCONNECTED_C)
-  {
-    currentTemperature = tempC;
-    Serial.print("Temperature: ");
-    Serial.println(currentTemperature);
-  }
-
-  else
-  {
-    Serial.println("Error: Could not read temperature data");
-  }
-
-  lastTempUpdate = millis();
-  displayOLED();
-}
-
-void handleRefreshTemp()
-{
-  updateTemperature();
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-
-void setDefaultSettings()
-{
-  ac.setFan(acFanSpeed);
-  ac.setMode(acMode);
-  ac.setTemp(acTemp);
-  ac.setSwingVertical(false);
-  ac.setSwingHorizontal(false);
-  ac.setQuiet(false);
-  ac.setPowerful(false);
-}
-
-void sendAcCommand()
-{
-  ac.setPower(acPower);
-  ac.setTemp(acTemp);
-  ac.setFan(acFanSpeed);
-  ac.send();
-
-  Serial.println("Sending IR Command:");
-  Serial.print("Power: "); Serial.println(acPower ? "ON" : "OFF");
-  Serial.print("Temperature: "); Serial.println(acTemp);
-  Serial.print("Mode: "); Serial.println(acMode);
-  Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
-}
 
 // Web UI is in here.
 void handleRoot()
@@ -463,22 +406,22 @@ void handleRoot()
   html += "<div class='timer-control'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
-  html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
+  html += "<option value='0'" + String(acOffTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
   
   for (int h = 1; h <= 9; h++)
   {
     html += "<option value='" + String(h) + "'";
-    if (acTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
+    if (acOffTimerDuration == (unsigned long)h * 3600000UL) html += " selected";
     html += ">" + String(h) + " Hour" + (h > 1 ? "s" : "") + "</option>";
   }
 
   html += "</select>";
 
-  html += "<p id='timerStatus' style='display: " + String(acTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
-  if (acTimerDuration > 0 && acPower)
+  html += "<p id='timerStatus' style='display: " + String(acOffTimerDuration > 0 && acPower ? "block" : "none") + ";'>";
+  if (acOffTimerDuration > 0 && acPower)
   {
-    unsigned long elapsed = millis() - acTimerStart;
-    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
+    unsigned long elapsed = millis() - acOffTimerStart;
+    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
     int remainingHours = remainingTime / 3600000UL;
     int remainingMins  = (remainingTime / 60000UL) % 60;
     int remainingSecs  = (remainingTime / 1000UL) % 60;
@@ -492,13 +435,99 @@ void handleRoot()
   server.send(200, "text/html", html);
 }
 
+void handleStatus()
+{
+  String json = "{";
+  json += "\"power\":" + String(acPower ? "true" : "false") + ",";
+  json += "\"temperature\":" + String(acTemp) + ",";
+  json += "\"roomTemperature\":" + String(currentTemperature) + ",";
+  json += "\"mode\":" + String(acMode) + ",";
+  json += "\"fanSpeed\":" + String(acFanSpeed);
+
+  if (acOffTimerDuration > 0 && acPower)
+  {
+    unsigned long elapsed = millis() - acOffTimerStart;
+    unsigned long remainingTime = (elapsed >= acOffTimerDuration) ? 0UL : (acOffTimerDuration - elapsed);
+    json += ",\"timerActive\":true";
+    json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
+    json += ",\"timerDuration\":" + String(acOffTimerDuration / 60000UL);
+  }
+
+  else
+  {
+    json += ",\"timerActive\":false";
+    json += ",\"timerRemaining\":0";
+    json += ",\"timerDuration\":0";
+  }
+
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
+// This function is called every minute. So, we use it to update OLED, too
+void updateTemperature()
+{
+  Serial.println("Requesting temperature...");
+  sensors.requestTemperatures();
+
+  float tempC = sensors.getTempCByIndex(0);
+
+  if (tempC != DEVICE_DISCONNECTED_C)
+  {
+    currentTemperature = tempC;
+    Serial.print("Temperature: ");
+    Serial.println(currentTemperature);
+  }
+
+  else
+  {
+    Serial.println("Error: Could not read temperature data");
+  }
+
+  lastTempUpdate = millis();
+  displayOLED();
+}
+
+void handleRefreshTemp()
+{
+  updateTemperature();
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+void setDefaultSettings()
+{
+  ac.setFan(acFanSpeed);
+  ac.setMode(acMode);
+  ac.setTemp(acTemp);
+  ac.setSwingVertical(false);
+  ac.setSwingHorizontal(false);
+  ac.setQuiet(false);
+  ac.setPowerful(false);
+}
+
+void sendAcCommand()
+{
+  ac.setPower(acPower);
+  ac.setTemp(acTemp);
+  ac.setFan(acFanSpeed);
+  ac.send();
+
+  Serial.println("Sending IR Command:");
+  Serial.print("Power: "); Serial.println(acPower ? "ON" : "OFF");
+  Serial.print("Temperature: "); Serial.println(acTemp);
+  Serial.print("Mode: "); Serial.println(acMode);
+  Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
+}
+
 void handleOn()
 {
   acPower = true;
 
-  if (acTimerDuration > 0)
+  if (acOffTimerDuration > 0)
   {
-    acTimerStart = millis();
+    acOffTimerStart = millis();
   }
 
   sendAcCommand();
@@ -569,16 +598,16 @@ void handleFan()
   server.send(303);
 }
 
-void handleClearTimer()
+void handleClearOffTimer()
 {
-  bool hadActiveTimer = (acTimerDuration > 0);
+  bool hadActiveTimer = (acOffTimerDuration > 0);
 
   if (!hadActiveTimer)
   {
     return;
   }
 
-  acTimerDuration = 0;
+  acOffTimerDuration = 0;
   notificationMessage = "Timer has been cleared";
   
   if (acPower)
@@ -594,7 +623,7 @@ void handleClearTimer()
   server.send(303);
 }
 
-void handleTimer()
+void handleOffTimer()
 {
   if (server.hasArg("value"))
   {
@@ -603,69 +632,22 @@ void handleTimer()
     if (hours == 0)
     {
       // It has internal displayOLED and server functions.
-      handleClearTimer();
+      handleClearOffTimer();
       return;
     }
 
     else if (hours >= 1 && hours <= 9)
     {
-      unsigned long previousTimerDuration = acTimerDuration;
+      acOffTimerDuration = (unsigned long)hours * 3600000UL;
+      acOffTimerStart = millis();
 
-      if (hours == 0)
-      {
-        acTimerDuration = 0;
-      }
-
-      else
-      {
-        acTimerDuration = (unsigned long)hours * 3600000UL;
-        if (acPower)
-        {
-          acTimerStart = millis();
-        }
-      }
-
-      if (previousTimerDuration != acTimerDuration && acPower)
-      {
-        sendAcCommand();
-        String message = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
-        notificationMessage = message;
-      }
+      sendAcCommand();
+      notificationMessage = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
     }
   }
 
   server.sendHeader("Location", "/");
   server.send(303);
-}
-
-void handleStatus()
-{
-  String json = "{";
-  json += "\"power\":" + String(acPower ? "true" : "false") + ",";
-  json += "\"temperature\":" + String(acTemp) + ",";
-  json += "\"roomTemperature\":" + String(currentTemperature) + ",";
-  json += "\"mode\":" + String(acMode) + ",";
-  json += "\"fanSpeed\":" + String(acFanSpeed);
-
-  if (acTimerDuration > 0 && acPower)
-  {
-    unsigned long elapsed = millis() - acTimerStart;
-    unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
-    json += ",\"timerActive\":true";
-    json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
-    json += ",\"timerDuration\":" + String(acTimerDuration / 60000UL);
-  }
-
-  else
-  {
-    json += ",\"timerActive\":false";
-    json += ",\"timerRemaining\":0";
-    json += ",\"timerDuration\":0";
-  }
-
-  json += "}";
-
-  server.send(200, "application/json", json);
 }
 
 void setupIRReceiver()
@@ -675,8 +657,7 @@ void setupIRReceiver()
   Serial.println(kRecvPin);
 }
 
-// Display encoding type
-void encoding(const decode_type_t protocol)
+void printIrProtocol(const decode_type_t protocol)
 {
   switch (protocol)
   {
@@ -761,13 +742,13 @@ void parseDaikin(const decode_results *results)
 
     if (OffTime_Minutes != 1536)
     {
-      acTimerDuration = (unsigned long)OffTime_Minutes * 60000UL;
-      acTimerStart = millis();
+      acOffTimerDuration = (unsigned long)OffTime_Minutes * 60000UL;
+      acOffTimerStart = millis();
     }
 
     else
     {
-      acTimerDuration = 0;
+      acOffTimerDuration = 0;
     }
 
     Serial.print("Is On Timer Enabled: ");
@@ -787,13 +768,15 @@ void parseDaikin(const decode_results *results)
 
 void processIrMessage()
 {
+  decode_results results;
+  
   if (irrecv.decode(&results))
     {
       // Display basic information
       Serial.println();
       Serial.print("IR Signal Received at ");
       Serial.println(millis());
-      encoding(results.decode_type);
+      printIrProtocol(results.decode_type);
       Serial.print(" (");
       Serial.print(results.bits, DEC);
       Serial.println(" bits)");
@@ -812,6 +795,7 @@ void processIrMessage()
       }
       
       irrecv.resume();
+      memset(&results, 0, sizeof(decode_results));
     }
 }
 
@@ -909,8 +893,8 @@ void setup()
   server.on("/toggle", handleToggle);
   server.on("/temp", handleTemp);
   server.on("/fan", handleFan);
-  server.on("/timer", handleTimer);
-  server.on("/clear_timer", handleClearTimer);
+  server.on("/timer", handleOffTimer);
+  server.on("/clear_timer", handleClearOffTimer);
   server.on("/status", handleStatus);
   server.on("/refresh_temp", handleRefreshTemp);
 
@@ -937,12 +921,12 @@ void loop()
     updateTemperature();
   }
 
-  if (acTimerDuration > 0 && acPower)
+  if (acOffTimerDuration > 0 && acPower)
   {
-    if (millis() - acTimerStart >= acTimerDuration)
+    if (millis() - acOffTimerStart >= acOffTimerDuration)
     {
       acPower = false;
-      acTimerDuration = 0;
+      acOffTimerDuration = 0;
       sendAcCommand();
       Serial.println("Timer expired - AC turned off");
     }
