@@ -267,49 +267,79 @@ void handleRoot()
   html += "@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; display: none; } }";
   html += "</style>";
   html += "<script>";
+  
   html += "function refreshTemp() {";
   html += "  fetch('/status')";
   html += "    .then(response => response.json())";
   html += "    .then(data => {";
-  html += "      const temp = document.getElementById('roomTemp');";
-  html += "      if(data.roomTemperature > -100) {";
-  html += "        temp.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
-  html += "        temp.className = '';";
+  
+  html += "      const tempEl = document.getElementById('roomTemp');";
+  html += "      if (data.roomTemperature > -100) {";
+  html += "        tempEl.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
+  html += "        tempEl.className = '';";
   html += "      } else {";
-  html += "        temp.innerText = 'Sensor Error';";
-  html += "        temp.className = 'error';";
+  html += "        tempEl.innerText = 'Sensor Error';";
+  html += "        tempEl.className = 'error';";
   html += "      }";
+
   html += "      const acStatus = document.getElementById('acStatus');";
   html += "      if (acStatus) acStatus.innerText = data.power ? 'ON' : 'OFF';";
+
+  html += "      const setTemp = document.getElementById('setTemp');";
+  html += "      if (setTemp) setTemp.innerText = String(data.temperature) + '\\u00B0C';";
+  html += "      const tempSelect = document.getElementById('tempSelect');";
+  html += "      if (tempSelect && tempSelect.value !== String(data.temperature)) {";
+  html += "        tempSelect.value = String(data.temperature);";
+  html += "      }";
+
+  html += "      const fanSelect = document.getElementById('fanSelect');";
+  html += "      if (fanSelect && fanSelect.value !== String(data.fanSpeed)) {";
+  html += "        fanSelect.value = String(data.fanSpeed);";
+  html += "      }";
+  
   html += "      const timerStatus = document.getElementById('timerStatus');";
-  html += "      if(data.timerActive) {";
+  html += "      if (data.timerActive) {";
   html += "        const total = Math.max(0, Math.floor(data.timerRemaining));";
   html += "        const hours = Math.floor(total / 3600);";
   html += "        const mins = Math.floor((total % 3600) / 60);";
   html += "        const secs = total % 60;";
   html += "        timerStatus.innerHTML = 'Timer: ' + hours + 'h ' + mins + 'm ' + secs + 's remaining';";
   html += "        timerStatus.style.display = 'block';";
+  
+  html += "        const timer_value = parseInt(data.timerDuration);";
+  html += "         if(timer_value > 0) {";
+  html += "           const duration = (timer_value / 60);";
+  html += "           timerSelect.value = String(duration);";
+  html += "         }";
+
   html += "      } else {";
   html += "        timerStatus.style.display = 'none';";
+  html += "        timerSelect.value = String(0);";
   html += "      }";
+  
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
   html += "}";
+  
   html += "function changeTemp() {";
   html += "  const temp = document.getElementById('tempSelect').value;";
   html += "  location.href = '/temp?value=' + temp;";
   html += "}";
+  
   html += "function changeFan() {";
   html += "  const fan = document.getElementById('fanSelect').value;";
   html += "  location.href = '/fan?value=' + fan;";
   html += "}";
+  
   html += "function setTimer() {";
   html += "  const timer = document.getElementById('timerSelect').value;";
   html += "  location.href = '/timer?value=' + timer;";
   html += "}";
+  
   html += "function clearTimer() {";
   html += "  location.href = '/clear_timer';";
   html += "}";
+  
   html += "window.onload = function() {";
   html += "  refreshTemp();";
   html += "  setTimeout(function() {";
@@ -328,6 +358,7 @@ void handleRoot()
   }
 
   html += "<div class='sensor'>Room Temperature: <span id='roomTemp'>";
+
   if (currentTemperature > -100)
   {
     html += String(currentTemperature, 1) + "&deg;C";
@@ -341,45 +372,42 @@ void handleRoot()
 
   html += "<button class='refresh' onclick='location.href=\"/refresh_temp\"'>Refresh Temperature</button><br>";
   html += "<p>AC Status: <span id='acStatus'>" + String(acPower ? "ON" : "OFF") + "</span></p>";
-  html += "<p>Set Temperature: " + String(acTemp) + "&deg;C</p>";
+  html += "<p>Set Temperature: <span id='setTemp'>" + String(acTemp) + "&deg;C</span></p>";
   html += "<button onclick='location.href=\"/on\"'>Turn ON</button>";
   html += "<button class='off' onclick='location.href=\"/off\"'>Turn OFF</button><br>";
-
   html += "<div class='temp-control'>";
   html += "<label for='tempSelect'>Select Temperature: </label>";
   html += "<select id='tempSelect' onchange='changeTemp()'>";
-
+  
   for (int t = 18; t <= 32; t++)
   {
     html += "<option value='" + String(t) + "'";
     if (t == acTemp) html += " selected";
     html += ">" + String(t) + "&deg;C</option>";
   }
-
+  
   html += "</select>";
   html += "</div>";
-
   html += "<div class='fan-control'>";
   html += "<label for='fanSelect'>Select Fan Speed: </label>";
   html += "<select id='fanSelect' onchange='changeFan()'>";
-
   html += "<option value='10'" + String(acFanSpeed == kDaikinFanAuto ? " selected" : "") + ">Auto</option>";
+  
   for (int f = 1; f <= 5; f++)
   {
     html += "<option value='" + String(f) + "'";
     if (f == acFanSpeed) html += " selected";
     html += ">" + String(f) + "</option>";
   }
-  html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
 
+  html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
   html += "</select>";
   html += "</div>";
-
   html += "<div class='timer-control'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
-
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
+  
   for (int h = 1; h <= 9; h++)
   {
     html += "<option value='" + String(h) + "'";
@@ -415,7 +443,7 @@ void handleStatus()
   json += "\"roomTemperature\":" + String(currentTemperature) + ",";
   json += "\"mode\":" + String(acMode) + ",";
   json += "\"fanSpeed\":" + String(acFanSpeed) + ",";
-  json += "\"timerActive\":" + String(bIsOffTimerActive ? "true" : "false");
+  json += "\"timerActive\":" + String(bIsOffTimerActive ? true : false);
 
   if (acTimerDuration > 0)
   {
@@ -423,11 +451,13 @@ void handleStatus()
     unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
+    json += ",\"timerDuration\":" + String(acTimerDuration / 60000UL);
   }
 
   else
   {
     json += ",\"timerRemaining\":0";
+    json += ",\"timerDuration\":0";
   }
 
   json += "}";
