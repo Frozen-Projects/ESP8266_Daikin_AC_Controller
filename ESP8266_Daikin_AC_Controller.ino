@@ -17,7 +17,6 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
-// Message for notifications
 String notificationMessage = "";
 
 #pragma region NETWORK_SETTINGS
@@ -302,6 +301,7 @@ void sendAcCommand()
   Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
 }
 
+// Web UI is in here.
 void handleRoot()
 {
   String html = "<html><head>";
@@ -324,6 +324,7 @@ void handleRoot()
   html += "@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; display: none; } }";
   html += "</style>";
   html += "<script>";
+  
   html += "function refreshTemp() {";
   html += "  fetch('/status')";
   html += "    .then(response => response.json())";
@@ -362,21 +363,26 @@ void handleRoot()
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
   html += "}";
+  
   html += "function changeTemp() {";
   html += "  const temp = document.getElementById('tempSelect').value;";
   html += "  location.href = '/temp?value=' + temp;";
   html += "}";
+  
   html += "function changeFan() {";
   html += "  const fan = document.getElementById('fanSelect').value;";
   html += "  location.href = '/fan?value=' + fan;";
   html += "}";
+  
   html += "function setTimer() {";
   html += "  const timer = document.getElementById('timerSelect').value;";
   html += "  location.href = '/timer?value=' + timer;";
   html += "}";
+  
   html += "function clearTimer() {";
   html += "  location.href = '/clear_timer';";
   html += "}";
+  
   html += "window.onload = function() {";
   html += "  refreshTemp();";
   html += "  setTimeout(function() {";
@@ -646,7 +652,6 @@ void handleStatus()
   server.send(200, "application/json", json);
 }
 
-// Initialize IR receiver
 void setupIRReceiver()
 {
   irrecv.enableIRIn();  // Start the receiver
@@ -735,15 +740,25 @@ void parseDaikin(const decode_results *results)
 
     // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
     const uint16_t  OffTime_Minutes = ac.getOffTime();
-    acTimerDuration = OffTime_Minutes * 60000UL;
-    Serial.print("Off Time: ");
+    Serial.print("Off Time (min): ");
     Serial.println(OffTime_Minutes);
+
+    if (OffTime_Minutes != 1536)
+    {
+      acTimerDuration = (unsigned long)OffTime_Minutes * 60000UL;
+      acTimerStart = millis();
+    }
+
+    else
+    {
+      acTimerDuration = 0;
+    }
 
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
 
     // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
-    Serial.print("On Time: ");
+    Serial.print("On Time (min): ");
     Serial.println(ac.getOnTime());
 
     // Refresh Web UI.
