@@ -194,7 +194,8 @@ uint8_t acTemp = 23;
 uint8_t acFanSpeed = 3;
 uint8_t acMode = kDaikinCool;
 unsigned long acTimerStart = 0;
-unsigned long acTimerDuration = 0;  // ms (0 = no timer)
+unsigned long acTimerDuration = 0;  // milliseconds (If you set this to "0" in API, it will disable auto turn off timer.)
+bool bIsOffTimerActive = false;
 #pragma endregion AC_SETTINGS
 
 #pragma region OLED
@@ -573,6 +574,7 @@ void handleClearTimer()
   Serial.println(Message);
 
   acTimerDuration = 0;
+  bIsOffTimerActive = false;
 
   sendAcCommand();
   displayOLED();
@@ -596,6 +598,7 @@ void handleTimer()
 
     else if (hours >= 1 && hours <= 9)
     {
+      bIsOffTimerActive = true;
       unsigned long previousTimerDuration = acTimerDuration;
 
       acTimerDuration = (unsigned long)hours * 3600000UL;
@@ -698,8 +701,9 @@ void parseDaikin(const decode_results *results)
     Serial.print("Fan Speed: ");
     Serial.println(ac.getFan());
 
+    bIsOffTimerActive = ac.getOffTimerEnabled();
     Serial.print("Is Off Timer Enabled: ");
-    Serial.println(ac.getOffTimerEnabled() ? "YES" : "NO");
+    Serial.println(bIsOffTimerActive ? "YES" : "NO");
 
     // If printed value is 1536, it means timer is off.
     Serial.print("Off Time: ");
