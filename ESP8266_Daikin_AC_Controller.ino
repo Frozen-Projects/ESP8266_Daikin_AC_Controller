@@ -733,13 +733,16 @@ void parseDaikin(const decode_results *results)
     Serial.print("Is Off Timer Enabled: ");
     Serial.println(ac.getOffTimerEnabled() ? "YES" : "NO");
 
-    // If printed value is 1536, it means timer is off.
+    // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
+    const uint16_t  OffTime_Minutes = ac.getOffTime();
+    acTimerDuration = OffTime_Minutes * 60000UL;
     Serial.print("Off Time: ");
-    Serial.println(ac.getOffTime());
+    Serial.println(OffTime_Minutes);
 
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
 
+    // If printed value is 1536, it means timer is off. It is minutes based. You have to convert it to milliseconds.
     Serial.print("On Time: ");
     Serial.println(ac.getOnTime());
 
