@@ -44,5 +44,8 @@ Unzip driver, right click device, select update driver, choose driver folder. </
 - (Optional) 1X Female barrel jack for 5V input to ESP8266 for easy usage.
 - (Optional) 0.91 OLED Display to print connected WiFi and LAN IP Address.
 
-## INFO ABOUT PHOTO.JPG
-I didn't have correct colored male to male cables for connection. So, they are mixed. In the future I can consider to connect them on perfboard.
+## INFO ABOUT PHOTOGRAPH
+Connection scheme is same with Fritzing but I did some cable management and used power module for cleaner product.
+
+## UI Preview
+index.html file and Github Pages show what UI will look like when you install this .ino file to your ESP8266. Preview file generated from GitHub Copilot. So, there can be some little differences.

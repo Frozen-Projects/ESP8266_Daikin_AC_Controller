@@ -329,6 +329,7 @@ void handleRoot()
   html += "  fetch('/status')";
   html += "    .then(response => response.json())";
   html += "    .then(data => {";
+  
   html += "      const tempEl = document.getElementById('roomTemp');";
   html += "      if (data.roomTemperature > -100) {";
   html += "        tempEl.innerText = data.roomTemperature.toFixed(1) + '\\u00B0C';";
@@ -337,18 +338,22 @@ void handleRoot()
   html += "        tempEl.innerText = 'Sensor Error';";
   html += "        tempEl.className = 'error';";
   html += "      }";
+
   html += "      const acStatus = document.getElementById('acStatus');";
   html += "      if (acStatus) acStatus.innerText = data.power ? 'ON' : 'OFF';";
+
   html += "      const setTemp = document.getElementById('setTemp');";
   html += "      if (setTemp) setTemp.innerText = String(data.temperature) + '\\u00B0C';";
   html += "      const tempSelect = document.getElementById('tempSelect');";
   html += "      if (tempSelect && tempSelect.value !== String(data.temperature)) {";
   html += "        tempSelect.value = String(data.temperature);";
   html += "      }";
+
   html += "      const fanSelect = document.getElementById('fanSelect');";
   html += "      if (fanSelect && fanSelect.value !== String(data.fanSpeed)) {";
   html += "        fanSelect.value = String(data.fanSpeed);";
   html += "      }";
+  
   html += "      const timerStatus = document.getElementById('timerStatus');";
   html += "      if (data.timerActive) {";
   html += "        const total = Math.max(0, Math.floor(data.timerRemaining));";
@@ -357,9 +362,18 @@ void handleRoot()
   html += "        const secs = total % 60;";
   html += "        timerStatus.innerHTML = 'Timer: ' + hours + 'h ' + mins + 'm ' + secs + 's remaining';";
   html += "        timerStatus.style.display = 'block';";
+  
+  html += "        const timer_value = parseInt(data.timerDuration);";
+  html += "         if(timer_value > 0) {";
+  html += "           const duration = (timer_value / 60);";
+  html += "           timerSelect.value = String(duration);";
+  html += "         }";
+
   html += "      } else {";
   html += "        timerStatus.style.display = 'none';";
+  html += "        timerSelect.value = String(0);";
   html += "      }";
+  
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
   html += "}";
@@ -639,12 +653,14 @@ void handleStatus()
     unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
     json += ",\"timerActive\":true";
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
+    json += ",\"timerDuration\":" + String(acTimerDuration / 60000UL);
   }
 
   else
   {
     json += ",\"timerActive\":false";
     json += ",\"timerRemaining\":0";
+    json += ",\"timerDuration\":0";
   }
 
   json += "}";
