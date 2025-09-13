@@ -414,19 +414,19 @@ void handleStatus()
   json += "\"temperature\":" + String(acTemp) + ",";
   json += "\"roomTemperature\":" + String(currentTemperature) + ",";
   json += "\"mode\":" + String(acMode) + ",";
-  json += "\"fanSpeed\":" + String(acFanSpeed);
+  json += "\"fanSpeed\":" + String(acFanSpeed) + ",";
+  json += "\"timerActive\":" + String(bIsOffTimerActive ? "true" : "false");
 
-  if (acTimerDuration > 0 && acPower)
+  if (acTimerDuration > 0)
   {
     unsigned long elapsed = millis() - acTimerStart;
     unsigned long remainingTime = (elapsed >= acTimerDuration) ? 0UL : (acTimerDuration - elapsed);
-    json += ",\"timerActive\":true";
+    
     json += ",\"timerRemaining\":" + String(remainingTime / 1000UL);
   }
 
   else
   {
-    json += ",\"timerActive\":false";
     json += ",\"timerRemaining\":0";
   }
 
@@ -462,6 +462,7 @@ void updateTemperature()
 void handleRefreshTemp()
 {
   updateTemperature();
+  
   server.sendHeader("Location", "/");
   server.send(303);
 }
@@ -482,6 +483,17 @@ void sendAcCommand()
   ac.setPower(acPower);
   ac.setTemp(acTemp);
   ac.setFan(acFanSpeed);
+
+  if (acTimerDuration > 0)
+  {
+    ac.enableOffTimer(acTimerDuration / 60000UL);
+  }
+
+  else
+  {
+    ac.disableOffTimer();
+  }
+
   ac.send();
 
   Serial.println("Sending IR Command:");
@@ -489,18 +501,15 @@ void sendAcCommand()
   Serial.print("Temperature: "); Serial.println(acTemp);
   Serial.print("Mode: "); Serial.println(acMode);
   Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
+  Serial.print("Auto-Off Timer: "); Serial.println(acTimerDuration > 0 ? "YES" : "NO");
 }
 
 void handleOn()
 {
   acPower = true;
 
-  if (acTimerDuration > 0)
-  {
-    acTimerStart = millis();
-  }
-
   sendAcCommand();
+  
   server.sendHeader("Location", "/");
   server.send(303);
 }
@@ -508,7 +517,12 @@ void handleOn()
 void handleOff()
 {
   acPower = false;
+  acTimerDuration = 0;
+  acTimerStart = 0;
+  bIsOffTimerActive = false;
+  
   sendAcCommand();
+  
   server.sendHeader("Location", "/");
   server.send(303);
 }
@@ -574,6 +588,7 @@ void handleClearTimer()
   Serial.println(Message);
 
   acTimerDuration = 0;
+  acTimerStart = 0;
   bIsOffTimerActive = false;
 
   sendAcCommand();
@@ -585,39 +600,41 @@ void handleClearTimer()
 
 void handleTimer()
 {
-  if (server.hasArg("value"))
+  if (!server.hasArg("value") || !acPower)
   {
-    int hours = server.arg("value").toInt();
-    
-    if (hours == 0)
-    {
-      // It has internal displayOLED and server functions.
-      handleClearTimer();
-      return;
-    }
+    server.sendHeader("Location", "/");
+    server.send(303);
 
-    else if (hours >= 1 && hours <= 9)
-    {
-      bIsOffTimerActive = true;
-      unsigned long previousTimerDuration = acTimerDuration;
-
-      acTimerDuration = (unsigned long)hours * 3600000UL;
-      if (acPower)
-      {
-        acTimerStart = millis();
-      }
-
-      if (previousTimerDuration != acTimerDuration && acPower)
-      {
-        sendAcCommand();
-        String message = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
-        notificationMessage = message;
-      }
-    }
+    return;
   }
 
-  server.sendHeader("Location", "/");
-  server.send(303);
+  const int hours = server.arg("value").toInt();
+    
+  if (hours == 0)
+  {
+    // It has internal displayOLED and server functions.
+    handleClearTimer();
+
+    server.sendHeader("Location", "/");
+    server.send(303);
+
+    return;
+  }
+
+  else if (hours >= 1 && hours <= 9)
+  {
+    String message = "Timer set for " + String(hours) + " hour" + (hours != 1 ? "s" : "");
+    notificationMessage = message;
+
+    bIsOffTimerActive = true;
+    acTimerDuration = (unsigned long)hours * 3600000UL;
+    acTimerStart = millis();
+
+    sendAcCommand();
+
+    server.sendHeader("Location", "/");
+    server.send(303);
+  }
 }
 
 void setupIRReceiver()
@@ -706,13 +723,16 @@ void parseDaikin(const decode_results *results)
     Serial.println(bIsOffTimerActive ? "YES" : "NO");
 
     // If printed value is 1536, it means timer is off.
-    Serial.print("Off Time: ");
-    Serial.println(ac.getOffTime());
+    const uint16_t RawOffTime = ac.getOffTime();
+    acTimerDuration = RawOffTime != 1536 ? (RawOffTime * 60000UL) : 0;
+    acTimerStart = RawOffTime != 1536 ? millis() : 0;
+    Serial.print("Off Time (min): ");
+    Serial.println(RawOffTime);
 
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
 
-    Serial.print("On Time: ");
+    Serial.print("On Time (min): ");
     Serial.println(ac.getOnTime());
 
     // Refresh Web UI.
@@ -768,7 +788,6 @@ void setup()
 
   onGotIPHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& evt)
   {
-    //Serial.printf("WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
     g_flagWifiConnected = true;
   });
 
@@ -860,6 +879,9 @@ void loop()
     {
       acPower = false;
       acTimerDuration = 0;
+      acTimerStart = 0;
+      bIsOffTimerActive = false;
+
       sendAcCommand();
       Serial.println("Timer expired - AC turned off");
     }
