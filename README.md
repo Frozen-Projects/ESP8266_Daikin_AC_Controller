@@ -1,5 +1,5 @@
 # ESP8266_Daikin_Controller
-ESP8266 based Daikin Climate IR Remote Controller and Dallas DS1820 Temprature Sensor.
+ESP8266 based Daikin ClimateController.
 
 ## FEATURES
 - Turn on and off AC.
@@ -13,7 +13,7 @@ You can install them from Arduino IDE libraries section.
 - (Optional for temperature sensor) DallasTemperature : https://github.com/milesburton/Arduino-Temperature-Control-Library
 - (Optional for temperature sensor) OneWire : https://www.pjrc.com/teensy/td_libs_OneWire.html
 - (Optional for OLED) Adafruit GFX Lbrary
-- (Optional for OLED) Adafruit SSD1305 / 1306
+- (Optional for OLED) Adafruit SSD1305 / 1306 / SH110X
 
 ## IDE PLUGINS (OPTINAL IF YOU WANT TO STORE HTML AS A FILE)
 - LittleFS Uploader : https://github.com/earlephilhower/arduino-littlefs-upload/releases/tag/1.5.4
@@ -33,19 +33,22 @@ You can install them from Arduino IDE libraries section.
 - If Windows 11 can't see ESP8266 correctly in ``Device Manager``, you have to install this driver.
 Unzip driver, right click device, select update driver, choose driver folder. </br> https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads
 
-
 ## HARDWARES
-- 1X ESP8266 NodeMCU
-- 1X 5mm 940nm 80 mW IR LED (Red LED in scheme) (Pins: Long leg is (+) and short leg s (- / GRD)
+- 1X ESP8266 NodeMCU (ESP32 doesn't work with IRremoteESP8266. You can track its support from its issues)
+- 1X 5mm 940nm 80 mW IR LED (Blue LED in scheme) (Pins: Long leg is (+) and short leg s (- / GRD)
 - 1X S8050 Transistor (Transistor with N sign in scheme) (Pins: Emitter - Base - Collector)
 - 1X 4.7K ohm Resistor
 - 1X Breadboard (I used big one)
+- 1X IR Receiver to sync. with original remote controller.
 - (Optional) 1X Dallas DS1820 Temperature Sensor (Pins: GND - DQ - VDD)
-- (Optional) 1X Female barrel jack for 5V input to ESP8266 for easy usage.
-- (Optional) 0.91 OLED Display to print connected WiFi and LAN IP Address.
+- (Optional) OLED Display to print connected WiFi and LAN IP Address.
+- (Optional) 1X Female barrel jack or Breadboard Power Supply Module for easy power delivery. You know, ESP8266'e USB input requires 3.3V input and finding that adapter can be hard. This allow me to use 5V adapters. I used power supply module.
 
 ## INFO ABOUT PHOTOGRAPH
 Connection scheme is same with Fritzing but I did some cable management and used power module for cleaner product.
 
 ## UI Preview
 index.html file and Github Pages show what UI will look like when you install this .ino file to your ESP8266. Preview file generated from GitHub Copilot. So, there can be some little differences.
+
+## ROADMAP
+HiveMQ based MQTT for remote access. (I have CGN IP and I need to deploy a tunnelling solution to access it from outside of my local network. Connecting HiveMQ or similar (free and serverless) MQTT broker service and developing an app to controll it will solve remote access problem.
