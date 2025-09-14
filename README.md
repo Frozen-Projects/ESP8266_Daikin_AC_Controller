@@ -1,10 +1,13 @@
 # ESP8266_Daikin_Controller
-ESP8266 based Daikin ClimateController.
+ESP8266 based Daikin AC Controller.
 
 ## FEATURES
 - Turn on and off AC.
-- Change temperature
-- Get room temperature with sensor (it refreshes at 60 seconds)
+- Change temperature.
+- Change fan speed.
+- Set, change or clear auto off timer.
+- It synchronized with original remote controller. (When you change something from remote controller, it will apply to ESP8266. But you can't see ESP8266 based changes on remote controller because it doesn't have an IR receiver. It just holds configurations.)
+- Get room temperature with sensor (it refreshes at every 60 seconds).
 - It has a web panel and API.
 
 ## LIBRARIES
@@ -48,7 +51,7 @@ Unzip driver, right click device, select update driver, choose driver folder. </
 Connection scheme is same with Fritzing but I did some cable management and used power module for cleaner product.
 
 ## UI Preview
-index.html file and Github Pages show what UI will look like when you install this .ino file to your ESP8266. Preview file generated from GitHub Copilot. So, there can be some little differences.
+index.html file and Github Pages show what UI will look like when you install this .ino file to your ESP8266. Preview file generated from GitHub Copilot. So, there can be some little differences. Auto-Off Timer Selection Box will open when AC is on.
 
 ## ROADMAP
 HiveMQ based MQTT for remote access. (I have CGN IP and I need to deploy a tunnelling solution to access it from outside of my local network. Connecting HiveMQ or similar (free and serverless) MQTT broker service and developing an app to controll it will solve remote access problem.
