@@ -316,6 +316,11 @@ void handleRoot()
   html += "        timerStatus.style.display = 'none';";
   html += "        timerSelect.value = String(0);";
   html += "      }";
+
+  html += "      const timerControl = document.querySelector('.timer-control');";
+  html += "      if (timerControl) {";
+  html += "        timerControl.style.display = data.power ? 'block' : 'none';";
+  html += "      }";
   
   html += "      if (!data.power && timerStatus) timerStatus.style.display = 'none';";
   html += "    });";
@@ -403,7 +408,7 @@ void handleRoot()
   html += "<option value='11'" + String(acFanSpeed == kDaikinFanQuiet ? " selected" : "") + ">Quiet</option>";
   html += "</select>";
   html += "</div>";
-  html += "<div class='timer-control'>";
+  html += "<div class='timer-control' style='display: " + String(acPower ? "block" : "none") + ";'>";
   html += "<label for='timerSelect'>Auto-Off Timer: </label>";
   html += "<select id='timerSelect' onchange='setTimer()'>";
   html += "<option value='0'" + String(acTimerDuration == 0 ? " selected" : "") + ">No Timer</option>";
