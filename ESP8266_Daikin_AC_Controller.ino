@@ -194,7 +194,8 @@ uint8_t acTemp = 23;
 uint8_t acFanSpeed = 3;
 uint8_t acMode = kDaikinCool;
 unsigned long acTimerStart = 0;
-unsigned long acTimerDuration = 0;  // milliseconds (If you set this to "0" in API, it will disable auto turn off timer.)
+unsigned long acTimerDuration = 0;        // milliseconds (If you set this to "0" in API, it will disable auto turn off timer.)
+unsigned long LastOffTimerDuration = 0;   // We use this to prevent sending same timer.
 bool bIsOffTimerActive = false;
 #pragma endregion AC_SETTINGS
 
@@ -515,21 +516,24 @@ void setDefaultSettings()
 
 void sendAcCommand()
 {
+  irrecv.pause();
+
   ac.setPower(acPower);
   ac.setTemp(acTemp);
   ac.setFan(acFanSpeed);
 
-  if (acTimerDuration > 0)
+  if (acTimerDuration > 0 && LastOffTimerDuration != acTimerDuration)
   {
     ac.enableOffTimer(acTimerDuration / 60000UL);
   }
 
-  else
+  else if (acTimerDuration == 0)
   {
     ac.disableOffTimer();
   }
 
   ac.send();
+  LastOffTimerDuration = acTimerDuration;
 
   Serial.println("Sending IR Command:");
   Serial.print("Power: "); Serial.println(acPower ? "ON" : "OFF");
@@ -537,6 +541,8 @@ void sendAcCommand()
   Serial.print("Mode: "); Serial.println(acMode);
   Serial.print("Fan Speed: "); Serial.println(acFanSpeed);
   Serial.print("Auto-Off Timer: "); Serial.println(acTimerDuration > 0 ? "YES" : "NO");
+  
+  irrecv.resume();
 }
 
 void handleOn()
@@ -562,6 +568,7 @@ void handleOff()
   server.send(303);
 }
 
+// API only.
 void handleToggle()
 {
   if (acPower == true)
@@ -624,6 +631,7 @@ void handleClearTimer()
 
   acTimerDuration = 0;
   acTimerStart = 0;
+  LastOffTimerDuration = 0;
   bIsOffTimerActive = false;
 
   sendAcCommand();
@@ -758,12 +766,18 @@ void parseDaikin(const decode_results *results)
     Serial.println(bIsOffTimerActive ? "YES" : "NO");
 
     // If printed value is 1536, it means timer is off.
-    const uint16_t RawOffTime = ac.getOffTime();
-    acTimerDuration = RawOffTime != 1536 ? (RawOffTime * 60000UL) : 0;
-    acTimerStart = RawOffTime != 1536 ? millis() : 0;
+    const uint16_t RawOffDuration = ac.getOffTime();
+    const unsigned long TempOffDuration = RawOffDuration != 1536 ? (RawOffDuration * 60000UL) : 0;
     Serial.print("Off Time (min): ");
-    Serial.println(RawOffTime);
-
+    Serial.println(RawOffDuration);
+    
+    if (LastOffTimerDuration != TempOffDuration)
+    {
+      acTimerDuration = TempOffDuration;
+      LastOffTimerDuration = acTimerDuration;
+      acTimerStart = RawOffDuration != 1536 ? millis() : 0;
+    }
+    
     Serial.print("Is On Timer Enabled: ");
     Serial.println(ac.getOnTimerEnabled() ? "YES" : "NO");
 
@@ -915,6 +929,7 @@ void loop()
       acPower = false;
       acTimerDuration = 0;
       acTimerStart = 0;
+      LastOffTimerDuration = 0;
       bIsOffTimerActive = false;
 
       sendAcCommand();
