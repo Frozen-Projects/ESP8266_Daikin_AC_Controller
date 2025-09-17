@@ -54,4 +54,5 @@ Connection scheme is same with Fritzing but I did some cable management and used
 index.html file and Github Pages show what UI will look like when you install this .ino file to your ESP8266. Preview file generated from GitHub Copilot. So, there can be some little differences. Auto-Off Timer Selection Box will open when AC is on.
 
 ## ROADMAP
-HiveMQ based MQTT for remote access. (I have CGN IP and I need to deploy a tunnelling solution to access it from outside of my local network. Connecting HiveMQ or similar (free and serverless) MQTT broker service and developing an app to controll it will solve remote access problem.
+HiveMQ based MQTT for remote access and mobile app. </br>
+I have CGN IP. So, I needed to deploy a tunnelling solution to access it from outside of my local network. It worked but I don't have any always on local server. So, I will use additional ESP32 (because I don't want to put everything to this ESP8266) to connect HiveMQ like free and serverless MQTT service to receive orders like "turn on, off or change something" and send HTTP requests.
