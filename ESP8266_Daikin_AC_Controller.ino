@@ -2,6 +2,12 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 
+// OTA INCLUDES.
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+
+// IR INCLUDES.
 #include <IRremoteESP8266.h>
 #include <IRac.h>
 #include <IRtext.h>
@@ -10,10 +16,12 @@
 #include <IRutils.h>
 #include <ir_Daikin.h>
 
+// TEMPERATURE SENSOR INCLUDES.
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Wire.h>
 
+// OLED INCLUDES.
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
@@ -22,6 +30,8 @@ String notificationMessage = "";
 #pragma region NETWORK_SETTINGS
 const char* ssid = "WIFI_SSID";
 const char* password = "WIFI_PASS";
+const char* OTA_PASS = "YOUR_OTA_PASSWORD";
+
 WiFiEventHandler onGotIPHandler;
 WiFiEventHandler onDisconnectedHandler;
 ESP8266WebServer server(80);
@@ -215,7 +225,7 @@ void displayOLED()
   display.setCursor(0, 0);
 
   display.println("Connected to WiFi");
-  display.println(ssid);
+  display.println(WIFI_SSID);
   display.println("");
 
   display.print("IP: ");
@@ -823,6 +833,82 @@ void processIrMessage()
     }
 }
 
+void OLED_OTA(const String& otaState)
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+
+  display.print("Connected to WiFi: ");
+  display.println(WIFI_SSID);
+  display.println("");
+
+  display.print("IP: ");
+  display.println(WiFi.localIP().toString());
+  display.println("");
+
+  display.print("OTA STATE: ");
+  display.println(otaState);
+  display.println("");
+
+  display.display(); 
+}
+
+void Arduino_OTA_Setup()
+{
+    // Port defaults to 8266
+    ArduinoOTA.setPort(8266);
+
+    // Hostname defaults to esp8266-[ChipID]
+    ArduinoOTA.setHostname("Daikin_AC_Controller");
+
+    // No authentication by default
+    ArduinoOTA.setPassword(OTA_PASS);
+
+    ArduinoOTA.onStart([]()
+    {
+      String type = ArduinoOTA.getCommand() == U_FLASH ? "sketch" : "filesystem";
+
+      const String Message = "OTA : Start updating " + type;
+      Serial.println(Message);
+      OLED_OTA(Message);
+    });
+
+  ArduinoOTA.onEnd([]()
+  {
+    Serial.println("OTA : END");
+    OLED_OTA("OTA : END");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
+  {
+    const unsigned pct = (total ? (progress * 100U) / total : 0U);
+    String message = "Progress: " + String(pct) + "%";
+    Serial.println(message);
+    OLED_OTA(message);
+  });
+
+  ArduinoOTA.onError([](ota_error_t error)
+  {
+    String message = "Error[" + String(static_cast<unsigned>(error)) + "]: ";
+    Serial.println(message);
+    OLED_OTA(message);
+
+    switch (error)
+    {
+      case OTA_AUTH_ERROR:    Serial.println(F("Auth Failed"));    OLED_OTA(F("OTA : Auth Failed"));    break;
+      case OTA_BEGIN_ERROR:   Serial.println(F("Begin Failed"));   OLED_OTA(F("OTA : Begin Failed"));   break;
+      case OTA_CONNECT_ERROR: Serial.println(F("Connect Failed")); OLED_OTA(F("OTA : Connect Failed")); break;
+      case OTA_RECEIVE_ERROR: Serial.println(F("Receive Failed")); OLED_OTA(F("OTA : Receive Failed")); break;
+      case OTA_END_ERROR:     Serial.println(F("End Failed"));     OLED_OTA(F("OTA : End Failed"));     break;
+      default: break;
+    }
+  });
+
+  ArduinoOTA.begin();
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -847,7 +933,7 @@ void setup()
   });
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.println("Connecting to WiFi");
 
   while (WiFi.status() != WL_CONNECTED)
@@ -856,9 +942,11 @@ void setup()
     Serial.print(".");
   }
 
+  Arduino_OTA_Setup();
+
   Serial.println("");
   Serial.print("Connected to WiFi: ");
-  Serial.println(ssid);
+  Serial.println(WIFI_SSID);
 
   Serial.print("Local IP: ");
   Serial.println(WiFi.localIP());
@@ -909,6 +997,7 @@ void setup()
 
 void loop()
 {
+  ArduinoOTA.handle();
   server.handleClient();
 
   if (g_flagWifiConnected)   { enqueue_Beep_Success(); g_flagWifiConnected = false; }
