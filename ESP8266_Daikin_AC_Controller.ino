@@ -28,8 +28,8 @@
 String notificationMessage = "";
 
 #pragma region NETWORK_SETTINGS
-const char* ssid = "WIFI_SSID";
-const char* password = "WIFI_PASS";
+const char* WIFI_SSID = "WIFI_SSID";
+const char* WIFI_PASS = "WIFI_PASS";
 const char* OTA_PASS = "YOUR_OTA_PASSWORD";
 
 WiFiEventHandler onGotIPHandler;
